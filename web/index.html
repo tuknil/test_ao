@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic Overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Agentic Overlay</span>
+      <button class="collapse-btn" id="collapseBtn" aria-label="Collapse panel" title="Collapse panel">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <nav class="sidebar-content">
+      <div class="section">
+        <button class="section-header" data-section="ai-assets" aria-expanded="true">
+          <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 3L5 6.5L8 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="section-label">AI Assets Discovery</span>
+        </button>
+        <ul class="section-list" id="ai-assets">
+          <li><a href="#">Models</a></li>
+          <li><a href="#">MCP Servers</a></li>
+          <li><a href="#">Tools</a></li>
+          <li><a href="#" id="agentsLink">Agents</a></li>
+          <li><a href="#" id="policiesLink">Policies</a></li>
+        </ul>
+      </div>
+
+      <div class="section">
+        <button class="section-header" data-section="integrations" aria-expanded="true">
+          <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 3L5 6.5L8 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="section-label">Integrations</span>
+        </button>
+        <ul class="section-list" id="integrations">
+          <li><a href="#" id="integrationsAiAssetsLink">AI Assets Sources</a></li>
+          <li><a href="#" id="policySinksLink">Policy Sinks</a></li>
+          <li><a href="#" id="telemetrySourcesLink">Telemetry Sources</a></li>
+          <li><a href="#" id="signalSinksLink">Signal Sinks</a></li>
+        </ul>
+      </div>
+    </nav>
+  </aside>
+
+  <button class="expand-btn" id="expandBtn" aria-label="Expand panel" title="Expand panel">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 3L11 8L6 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <main class="content">
+    <div class="view" id="defaultView">
+      <h1>Dashboard</h1>
+      <p>Use the arrow button to collapse or expand the left panel. Click a section header to toggle its list.</p>
+    </div>
+
+    <div class="view" id="agentsView" hidden>
+      <h1>AI Agents</h1>
+      <p id="agentsSummary">Loading agents...</p>
+
+      <input type="text" class="search-input" id="agentsSearch" placeholder="Search by name, technology, cloud platform, status or region...">
+
+      <div class="table-scroll">
+        <table class="integrations-table" id="agentsTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>ID</th>
+              <th>Agentic Overlay Id</th>
+              <th>External ID</th>
+              <th>Type</th>
+              <th>Technology</th>
+              <th>Cloud</th>
+              <th>Status</th>
+              <th>Region</th>
+              <th>Projects</th>
+              <th>First seen</th>
+              <th>Risks</th>
+              <th>Monitor</th>
+            </tr>
+          </thead>
+          <tbody id="agentsTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="pagination" id="agentsPagination">
+        <button type="button" class="btn-secondary" id="agentsPrevBtn">Previous</button>
+        <span id="agentsPageInfo"></span>
+        <button type="button" class="btn-secondary" id="agentsNextBtn">Next</button>
+      </div>
+    </div>
+
+    <div class="view" id="policiesView" hidden>
+      <h1>Policies</h1>
+      <p id="policiesSummary">Loading policies...</p>
+
+      <input type="text" class="search-input" id="policiesSearch" placeholder="Search by name, policy id, type, severity or cloud platform...">
+
+      <div class="table-scroll">
+        <table class="integrations-table" id="policiesTable">
+          <thead>
+            <tr>
+              <th class="col-policy-name">Policy name</th>
+              <th>Policy ID</th>
+              <th>Type</th>
+              <th>Update type</th>
+              <th>Severity</th>
+              <th>Cloud</th>
+              <th>Released</th>
+              <th>Apply date</th>
+              <th>Enabled</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="policiesTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="pagination" id="policiesPagination">
+        <button type="button" class="btn-secondary" id="policiesPrevBtn">Previous</button>
+        <span id="policiesPageInfo"></span>
+        <button type="button" class="btn-secondary" id="policiesNextBtn">Next</button>
+      </div>
+    </div>
+
+    <div class="view" id="integrationsView" hidden>
+      <h1>AI Assets Sources</h1>
+      <p>Connect a third-party service to this workspace.</p>
+      <div class="card-grid" id="wizCardGrid"></div>
+
+      <div class="table-scroll" id="wizTableWrap" hidden>
+        <table class="integrations-table" id="wizTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Base URL</th>
+              <th>Client ID</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="wizTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="view" id="policySinksView" hidden>
+      <h1>Policy Sinks</h1>
+      <p>Destinations that receive policy updates and enforcement results from this workspace.</p>
+      <p class="empty-state">No integrations configured yet.</p>
+    </div>
+
+    <div class="view" id="telemetrySourcesView" hidden>
+      <h1>Telemetry Sources</h1>
+      <p>Feeds that stream runtime telemetry from AI agents into this workspace.</p>
+      <p class="empty-state">No integrations configured yet.</p>
+    </div>
+
+    <div class="view" id="signalSinksView" hidden>
+      <h1>Signal Sinks</h1>
+      <p>Destinations that receive detection and risk signals generated by this workspace.</p>
+      <p class="empty-state">No integrations configured yet.</p>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="wizModalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wizModalTitle">
+    <div class="modal-header">
+      <h2 id="wizModalTitle">Connect Wiz</h2>
+      <button class="modal-close" id="wizModalClose" aria-label="Close" type="button">&times;</button>
+    </div>
+    <form class="modal-form" id="wizForm">
+      <label for="wizName">Integration name</label>
+      <input type="text" id="wizName" placeholder="e.g. Wiz - Production" required>
+
+      <label for="wizTypeField">Type</label>
+      <input type="text" id="wizTypeField" disabled>
+
+      <label for="wizBaseUrl">Base URL</label>
+      <input type="url" id="wizBaseUrl" placeholder="https://api.example.com" required>
+
+      <label for="wizClientId">Client ID</label>
+      <input type="text" id="wizClientId" required>
+
+      <label for="wizClientSecret">Client secret</label>
+      <input type="password" id="wizClientSecret" required>
+
+      <label for="wizMcpServer">MCP server <span class="label-optional">(optional)</span></label>
+      <input type="text" id="wizMcpServer" placeholder="e.g. mcp.internal.example.com:8443">
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="wizCancelBtn">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal-overlay" id="riskModalOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="riskModalTitle">
+    <div class="modal-header">
+      <h2 id="riskModalTitle">Risks</h2>
+      <button class="modal-close" id="riskModalClose" aria-label="Close" type="button">&times;</button>
+    </div>
+    <div class="risk-modal-body" id="riskModalBody"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="regoModalOverlay" hidden>
+  <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="regoModalTitle">
+    <div class="modal-header">
+      <div>
+        <h2 id="regoModalTitle">Rego policy</h2>
+        <p class="modal-subtitle" id="regoModalSubtitle"></p>
+      </div>
+      <button class="modal-close" id="regoModalClose" aria-label="Close" type="button">&times;</button>
+    </div>
+    <div class="rego-modal-body">
+      <p class="rego-disclaimer">Illustrative Rego generated from this policy's metadata — not the actual enforced rule source.</p>
+      <pre class="rego-code" id="regoCode"></pre>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="regoCopyBtn">Copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js?v=10"></script>
+</body>
+</html>
