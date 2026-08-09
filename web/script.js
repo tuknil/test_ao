@@ -131,8 +131,6 @@ function renderWizCard() {
     row.innerHTML = `
       <td>${escapeHtml(wi.name)}</td>
       <td><span class="type-badge">${escapeHtml(wi.type)}</span></td>
-      <td>${escapeHtml(wi.baseUrl)}</td>
-      <td>${escapeHtml(wi.clientId)}</td>
       <td>
         <div class="row-actions">
           <button type="button" class="integration-action-btn" data-action="edit">Edit</button>
