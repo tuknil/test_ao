@@ -32,6 +32,7 @@ type Agent struct {
 	UpdatedAt        string `json:"updatedAt"`
 	Risks            int    `json:"risks"`
 	Monitor          bool   `json:"monitor"`
+	Source           string `json:"source"`
 }
 
 func md5Hex(s string) string {
@@ -59,8 +60,10 @@ func migrateAgents(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_agents_name ON agents (lower(name));
 		ALTER TABLE agents ADD COLUMN IF NOT EXISTS risks INTEGER NOT NULL DEFAULT 0;
-		ALTER TABLE agents ADD COLUMN IF NOT EXISTS monitor BOOLEAN NOT NULL DEFAULT true;
-		ALTER TABLE agents ALTER COLUMN monitor SET DEFAULT true;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS monitor BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ALTER COLUMN monitor SET DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'Wiz-Prod';
+		ALTER TABLE agents ALTER COLUMN source SET DEFAULT 'Wiz-Prod';
 	`)
 	return err
 }
@@ -210,7 +213,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor
+	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source
 	          FROM agents ` + whereClause + `
 	          ORDER BY name
 	          LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
@@ -226,7 +229,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 	items := []Agent{}
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

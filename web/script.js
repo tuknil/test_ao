@@ -313,6 +313,7 @@ function renderAgentsTable(data) {
       <td>${escapeHtml(agent.region)}</td>
       <td>${escapeHtml(agent.projects)}</td>
       <td class="cell-muted">${escapeHtml(formatDate(agent.firstSeen))}</td>
+      <td>${escapeHtml(agent.source)}</td>
       <td>
         <button type="button" class="risk-badge${agent.risks > 0 ? ' has-risks' : ''}" data-action="risks">${agent.risks}</button>
       </td>
