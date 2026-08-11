@@ -1,5 +1,8 @@
+name: agentic-overlay
+
 services:
   api:
+    container_name: ingestion-server
     build:
       context: .
       dockerfile: Dockerfile
@@ -9,6 +12,7 @@ services:
       - "8081:8080" # optional: hit the API directly for debugging
 
   ui:
+    container_name: ui-server
     build:
       context: ./web
       dockerfile: Dockerfile

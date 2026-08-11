@@ -4,7 +4,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/wizserver .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/ingestion-server .
 
 FROM debian:bookworm-slim
 # embedded-postgres downloads real PostgreSQL binaries over HTTPS on first
@@ -16,10 +16,10 @@ RUN apt-get update \
     && useradd --create-home --shell /bin/false app
 
 WORKDIR /app
-COPY --from=build /out/wizserver ./wizserver
+COPY --from=build /out/ingestion-server ./ingestion-server
 COPY data/ ./data/
 RUN chown -R app:app /app
 USER app
 
 EXPOSE 8080
-CMD ["./wizserver"]
+CMD ["./ingestion-server"]
