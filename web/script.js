@@ -594,3 +594,28 @@ regoCopyBtn.addEventListener('click', async () => {
     }, 1500);
   }
 });
+
+// Dashboard summary stats
+const statAgentsTotal = document.getElementById('statAgentsTotal');
+const statAgentsMonitored = document.getElementById('statAgentsMonitored');
+const statPoliciesTotal = document.getElementById('statPoliciesTotal');
+const statPoliciesEnabled = document.getElementById('statPoliciesEnabled');
+
+async function loadDashboardStats() {
+  try {
+    const res = await fetch('/api/dashboard/stats');
+    if (!res.ok) throw new Error('Failed to load dashboard stats');
+    const stats = await res.json();
+    statAgentsTotal.textContent = stats.agentsTotal.toLocaleString();
+    statAgentsMonitored.textContent = stats.agentsMonitored.toLocaleString();
+    statPoliciesTotal.textContent = stats.policiesTotal.toLocaleString();
+    statPoliciesEnabled.textContent = stats.policiesEnabled.toLocaleString();
+  } catch (err) {
+    console.error(err);
+    [statAgentsTotal, statAgentsMonitored, statPoliciesTotal, statPoliciesEnabled].forEach((el) => {
+      el.textContent = '—';
+    });
+  }
+}
+
+loadDashboardStats();

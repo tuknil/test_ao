@@ -64,7 +64,26 @@
   <main class="content">
     <div class="view" id="defaultView">
       <h1>Dashboard</h1>
-      <p>Use the arrow button to collapse or expand the left panel. Click a section header to toggle its list.</p>
+      <p>Live inventory summary from the AI Assets Discovery tables.</p>
+
+      <div class="stat-grid" id="dashboardStats">
+        <div class="stat-card">
+          <span class="stat-value" id="statAgentsTotal">&ndash;</span>
+          <span class="stat-label">Agents mapped</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statAgentsMonitored">&ndash;</span>
+          <span class="stat-label">Agents monitored</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statPoliciesTotal">&ndash;</span>
+          <span class="stat-label">Policies mapped</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="statPoliciesEnabled">&ndash;</span>
+          <span class="stat-label">Policies enabled</span>
+        </div>
+      </div>
     </div>
 
     <div class="view" id="agentsView" hidden>
@@ -238,6 +257,6 @@
   </div>
 </div>
 
-<script src="script.js?v=12"></script>
+<script src="script.js?v=13"></script>
 </body>
 </html>
