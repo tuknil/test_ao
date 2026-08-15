@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -28,11 +29,24 @@ type WizIntegration struct {
 var db *sql.DB
 
 func main() {
+	// embedded-postgres always wipes its RuntimePath (extracted binaries) on
+	// every Start(), but it will reuse an existing DataPath if PG_VERSION
+	// there matches the pinned Version below — so DataPath must live outside
+	// RuntimePath to survive restarts. Set via PGDATA_PATH (see Dockerfile /
+	// docker-compose volume); must not be a volume mount point itself, since
+	// embedded-postgres os.RemoveAll()s this path on a fresh start.
+	dataPath := os.Getenv("PGDATA_PATH")
+	if dataPath == "" {
+		dataPath = "./pgdata"
+	}
+
 	pg := embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Username("postgres").
 		Password("postgres").
 		Database("wizworkspace").
 		Port(5433).
+		Version(embeddedpostgres.V18).
+		DataPath(dataPath).
 		Logger(nil))
 
 	log.Println("starting embedded postgres...")
