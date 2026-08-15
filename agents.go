@@ -293,24 +293,19 @@ func updateAgentMonitor(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var oldMonitor bool
-	err = tx.QueryRow(`SELECT monitor FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&oldMonitor)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
+	res, err := tx.Exec(`UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	if _, err := tx.Exec(`UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO agent_monitor_history (agent_id, old_monitor, new_monitor) VALUES ($1, $2, $3)`,
-		id, oldMonitor, payload.Monitor,
+		`INSERT INTO agent_monitor_history (agent_id, monitor) VALUES ($1, $2)`,
+		id, payload.Monitor,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -350,24 +345,19 @@ func updateAgentKillSwitchAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var oldAction string
-	err = tx.QueryRow(`SELECT kill_switch_action FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&oldAction)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
+	res, err := tx.Exec(`UPDATE agents SET kill_switch_action = $1 WHERE id = $2`, payload.Action, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	if _, err := tx.Exec(`UPDATE agents SET kill_switch_action = $1 WHERE id = $2`, payload.Action, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO agent_kill_switch_history (agent_id, old_action, new_action) VALUES ($1, $2, $3)`,
-		id, oldAction, payload.Action,
+		`INSERT INTO agent_kill_switch_history (agent_id, action) VALUES ($1, $2)`,
+		id, payload.Action,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -406,24 +396,19 @@ func updateAgentRiskScore(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	var oldRiskScore int
-	err = tx.QueryRow(`SELECT risk_score FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&oldRiskScore)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
+	res, err := tx.Exec(`UPDATE agents SET risk_score = $1 WHERE id = $2`, payload.RiskScore, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-
-	if _, err := tx.Exec(`UPDATE agents SET risk_score = $1 WHERE id = $2`, payload.RiskScore, id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO agent_risk_score_history (agent_id, old_risk_score, new_risk_score) VALUES ($1, $2, $3)`,
-		id, oldRiskScore, payload.RiskScore,
+		`INSERT INTO agent_risk_score_history (agent_id, risk_score) VALUES ($1, $2)`,
+		id, payload.RiskScore,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

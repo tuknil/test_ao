@@ -12,55 +12,58 @@ func migrateHistoryTables(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS agent_monitor_history (
 			id SERIAL PRIMARY KEY,
 			agent_id TEXT NOT NULL REFERENCES agents(id),
-			old_monitor BOOLEAN,
-			new_monitor BOOLEAN NOT NULL,
+			monitor BOOLEAN NOT NULL,
 			changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
+		ALTER TABLE agent_monitor_history DROP COLUMN IF EXISTS old_monitor;
+		ALTER TABLE agent_monitor_history DROP COLUMN IF EXISTS new_monitor;
+		ALTER TABLE agent_monitor_history ADD COLUMN IF NOT EXISTS monitor BOOLEAN NOT NULL DEFAULT false;
 		CREATE INDEX IF NOT EXISTS idx_agent_monitor_history_agent_id ON agent_monitor_history (agent_id, changed_at DESC);
 
 		CREATE TABLE IF NOT EXISTS agent_kill_switch_history (
 			id SERIAL PRIMARY KEY,
 			agent_id TEXT NOT NULL REFERENCES agents(id),
-			old_action TEXT,
-			new_action TEXT NOT NULL,
+			action TEXT NOT NULL,
 			changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
+		ALTER TABLE agent_kill_switch_history DROP COLUMN IF EXISTS old_action;
+		ALTER TABLE agent_kill_switch_history DROP COLUMN IF EXISTS new_action;
+		ALTER TABLE agent_kill_switch_history ADD COLUMN IF NOT EXISTS action TEXT NOT NULL DEFAULT 'not taken';
 		CREATE INDEX IF NOT EXISTS idx_agent_kill_switch_history_agent_id ON agent_kill_switch_history (agent_id, changed_at DESC);
 
 		CREATE TABLE IF NOT EXISTS agent_risk_score_history (
 			id SERIAL PRIMARY KEY,
 			agent_id TEXT NOT NULL REFERENCES agents(id),
-			old_risk_score INTEGER,
-			new_risk_score INTEGER NOT NULL,
+			risk_score INTEGER NOT NULL,
 			changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
+		ALTER TABLE agent_risk_score_history DROP COLUMN IF EXISTS old_risk_score;
+		ALTER TABLE agent_risk_score_history DROP COLUMN IF EXISTS new_risk_score;
+		ALTER TABLE agent_risk_score_history ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0;
 		CREATE INDEX IF NOT EXISTS idx_agent_risk_score_history_agent_id ON agent_risk_score_history (agent_id, changed_at DESC);
 	`)
 	return err
 }
 
 type MonitorHistoryEntry struct {
-	ID         int64     `json:"id"`
-	AgentID    string    `json:"agentId"`
-	OldMonitor *bool     `json:"oldMonitor"`
-	NewMonitor bool      `json:"newMonitor"`
-	ChangedAt  time.Time `json:"changedAt"`
+	ID        int64     `json:"id"`
+	AgentID   string    `json:"agentId"`
+	Monitor   bool      `json:"monitor"`
+	ChangedAt time.Time `json:"changedAt"`
 }
 
 type KillSwitchHistoryEntry struct {
 	ID        int64     `json:"id"`
 	AgentID   string    `json:"agentId"`
-	OldAction *string   `json:"oldAction"`
-	NewAction string    `json:"newAction"`
+	Action    string    `json:"action"`
 	ChangedAt time.Time `json:"changedAt"`
 }
 
 type RiskScoreHistoryEntry struct {
-	ID           int64     `json:"id"`
-	AgentID      string    `json:"agentId"`
-	OldRiskScore *int      `json:"oldRiskScore"`
-	NewRiskScore int       `json:"newRiskScore"`
-	ChangedAt    time.Time `json:"changedAt"`
+	ID        int64     `json:"id"`
+	AgentID   string    `json:"agentId"`
+	RiskScore int       `json:"riskScore"`
+	ChangedAt time.Time `json:"changedAt"`
 }
 
 // historyLimit parses a shared `limit` query param used by the history
@@ -79,7 +82,7 @@ func listAgentMonitorHistory(w http.ResponseWriter, r *http.Request) {
 	limit := historyLimit(r)
 
 	rows, err := db.Query(
-		`SELECT id, agent_id, old_monitor, new_monitor, changed_at
+		`SELECT id, agent_id, monitor, changed_at
 		 FROM agent_monitor_history WHERE agent_id = $1
 		 ORDER BY changed_at DESC LIMIT $2`,
 		id, limit,
@@ -93,7 +96,7 @@ func listAgentMonitorHistory(w http.ResponseWriter, r *http.Request) {
 	items := []MonitorHistoryEntry{}
 	for rows.Next() {
 		var e MonitorHistoryEntry
-		if err := rows.Scan(&e.ID, &e.AgentID, &e.OldMonitor, &e.NewMonitor, &e.ChangedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.AgentID, &e.Monitor, &e.ChangedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -107,7 +110,7 @@ func listAgentKillSwitchHistory(w http.ResponseWriter, r *http.Request) {
 	limit := historyLimit(r)
 
 	rows, err := db.Query(
-		`SELECT id, agent_id, old_action, new_action, changed_at
+		`SELECT id, agent_id, action, changed_at
 		 FROM agent_kill_switch_history WHERE agent_id = $1
 		 ORDER BY changed_at DESC LIMIT $2`,
 		id, limit,
@@ -121,7 +124,7 @@ func listAgentKillSwitchHistory(w http.ResponseWriter, r *http.Request) {
 	items := []KillSwitchHistoryEntry{}
 	for rows.Next() {
 		var e KillSwitchHistoryEntry
-		if err := rows.Scan(&e.ID, &e.AgentID, &e.OldAction, &e.NewAction, &e.ChangedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.AgentID, &e.Action, &e.ChangedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -135,7 +138,7 @@ func listAgentRiskScoreHistory(w http.ResponseWriter, r *http.Request) {
 	limit := historyLimit(r)
 
 	rows, err := db.Query(
-		`SELECT id, agent_id, old_risk_score, new_risk_score, changed_at
+		`SELECT id, agent_id, risk_score, changed_at
 		 FROM agent_risk_score_history WHERE agent_id = $1
 		 ORDER BY changed_at DESC LIMIT $2`,
 		id, limit,
@@ -149,7 +152,7 @@ func listAgentRiskScoreHistory(w http.ResponseWriter, r *http.Request) {
 	items := []RiskScoreHistoryEntry{}
 	for rows.Next() {
 		var e RiskScoreHistoryEntry
-		if err := rows.Scan(&e.ID, &e.AgentID, &e.OldRiskScore, &e.NewRiskScore, &e.ChangedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.AgentID, &e.RiskScore, &e.ChangedAt); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

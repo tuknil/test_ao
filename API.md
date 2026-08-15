@@ -205,15 +205,15 @@ Intended for use by an **external service** (not the workspace UI) to push a com
 
 ### History
 
-Every `monitor`, `kill-switch-action`, and `risk-score` update is recorded as a time-series row (old value, new value, timestamp), regardless of whether the value actually changed. Each `PATCH` above writes its history row in the same transaction as the update, so the two never drift.
+Every `monitor`, `kill-switch-action`, and `risk-score` update appends a **state snapshot** row (the value at that moment, plus a timestamp) — not a before/after transition. Each `PATCH` above writes its history row in the same transaction as the update, so the two never drift.
 
 #### `GET /api/agents/{id}/monitor-history`
 
 ```json
 {
   "items": [
-    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldMonitor": true, "newMonitor": false, "changedAt": "2026-08-15T05:37:20.733951Z" },
-    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldMonitor": false, "newMonitor": true, "changedAt": "2026-08-15T05:37:20.707837Z" }
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "monitor": false, "changedAt": "2026-08-15T05:43:44.717495Z" },
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "monitor": true, "changedAt": "2026-08-15T05:40:12.101223Z" }
   ]
 }
 ```
@@ -223,7 +223,7 @@ Every `monitor`, `kill-switch-action`, and `risk-score` update is recorded as a 
 ```json
 {
   "items": [
-    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldAction": "deactivated", "newAction": "reactivated", "changedAt": "2026-08-15T05:37:20.767363Z" }
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "action": "deactivated", "changedAt": "2026-08-15T05:43:44.745161Z" }
   ]
 }
 ```
@@ -233,7 +233,8 @@ Every `monitor`, `kill-switch-action`, and `risk-score` update is recorded as a 
 ```json
 {
   "items": [
-    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldRiskScore": 55, "newRiskScore": 82, "changedAt": "2026-08-15T05:37:20.794424Z" }
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 95, "changedAt": "2026-08-15T05:43:52.197286Z" },
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 77, "changedAt": "2026-08-15T05:43:44.760909Z" }
   ]
 }
 ```
