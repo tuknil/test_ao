@@ -203,6 +203,43 @@ Intended for use by an **external service** (not the workspace UI) to push a com
 
 `404` if the id doesn't exist.
 
+### History
+
+Every `monitor`, `kill-switch-action`, and `risk-score` update is recorded as a time-series row (old value, new value, timestamp), regardless of whether the value actually changed. Each `PATCH` above writes its history row in the same transaction as the update, so the two never drift.
+
+#### `GET /api/agents/{id}/monitor-history`
+
+```json
+{
+  "items": [
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldMonitor": true, "newMonitor": false, "changedAt": "2026-08-15T05:37:20.733951Z" },
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldMonitor": false, "newMonitor": true, "changedAt": "2026-08-15T05:37:20.707837Z" }
+  ]
+}
+```
+
+#### `GET /api/agents/{id}/kill-switch-history`
+
+```json
+{
+  "items": [
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldAction": "deactivated", "newAction": "reactivated", "changedAt": "2026-08-15T05:37:20.767363Z" }
+  ]
+}
+```
+
+#### `GET /api/agents/{id}/risk-score-history`
+
+```json
+{
+  "items": [
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "oldRiskScore": 55, "newRiskScore": 82, "changedAt": "2026-08-15T05:37:20.794424Z" }
+  ]
+}
+```
+
+All three: newest first (`changed_at DESC`), optional `limit` query param (default `100`, max `500`). Unknown `{id}` returns `{"items": []}`, not `404` — history is inherently empty for an agent with no recorded changes.
+
 ---
 
 ## Policies

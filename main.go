@@ -57,6 +57,9 @@ func main() {
 	if err := migrateAgents(db); err != nil {
 		log.Fatalf("failed to migrate agents: %v", err)
 	}
+	if err := migrateHistoryTables(db); err != nil {
+		log.Fatalf("failed to migrate history tables: %v", err)
+	}
 	if err := importAgentsFromCSV(db, "./data/agents.csv"); err != nil {
 		log.Fatalf("failed to import agents: %v", err)
 	}
@@ -77,6 +80,9 @@ func main() {
 	mux.HandleFunc("PATCH /api/agents/{id}/monitor", updateAgentMonitor)
 	mux.HandleFunc("PATCH /api/agents/{id}/kill-switch-action", updateAgentKillSwitchAction)
 	mux.HandleFunc("PATCH /api/agents/{id}/risk-score", updateAgentRiskScore)
+	mux.HandleFunc("GET /api/agents/{id}/monitor-history", listAgentMonitorHistory)
+	mux.HandleFunc("GET /api/agents/{id}/kill-switch-history", listAgentKillSwitchHistory)
+	mux.HandleFunc("GET /api/agents/{id}/risk-score-history", listAgentRiskScoreHistory)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
