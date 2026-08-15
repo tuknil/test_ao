@@ -86,6 +86,7 @@ func main() {
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
+	mux.HandleFunc("GET /api/dashboard/reporting", getDashboardReporting)
 	mux.Handle("/", noCacheStatic(http.FileServer(http.Dir("./web"))))
 
 	addr := ":8080"

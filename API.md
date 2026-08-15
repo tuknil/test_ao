@@ -318,3 +318,54 @@ curl http://localhost:8080/api/dashboard/stats
   "policiesEnabled": 1
 }
 ```
+
+### `GET /api/dashboard/reporting`
+
+Powers the Dashboard view's Milestone 1 Reporting layout: Mapping, Measuring, Monitoring, Kill Switch. (Prompt Injection reporting is intentionally out of scope.) Computed from `agents`, `policies`, and the three agent history tables — no separate reporting tables.
+
+```bash
+curl http://localhost:8080/api/dashboard/reporting
+```
+
+**Response `200`:**
+
+```json
+{
+  "mapping": {
+    "agentsMapped": 6772,
+    "policiesMapped": 450
+  },
+  "measuring": {
+    "agentsLow24h": 2,
+    "agentsMedium24h": 1,
+    "agentsHigh24h": 2,
+    "riskTrend": [
+      { "date": "2026-08-02", "low": 0, "medium": 0, "high": 0 },
+      { "date": "2026-08-15", "low": 2, "medium": 1, "high": 2 }
+    ],
+    "highRiskAgents": [
+      { "id": "622acbfe-...", "name": "ABSVoiceAgent-QA-ST1-W", "riskScore": 85, "source": "Wiz-Prod", "killSwitchAction": "not taken", "monitor": true }
+    ]
+  },
+  "monitoring": {
+    "agentsMonitored24h": 5,
+    "monitoredTrend": [
+      { "date": "2026-07-17", "count": 0 },
+      { "date": "2026-08-15", "count": 5 }
+    ]
+  },
+  "killSwitch": {
+    "agentsDisabled24h": 1,
+    "disabledTrend": [
+      { "date": "2026-07-17", "count": 0 },
+      { "date": "2026-08-15", "count": 1 }
+    ]
+  }
+}
+```
+
+Notes:
+- All `*24h` counts and the `highRiskAgents` risk-bucket assignment count **distinct agents**, not raw events.
+- Risk buckets: `low` = score `< 50`, `medium` = `50`-`69`, `high` = `>= 70`.
+- `riskTrend` covers the last 14 days, `monitoredTrend`/`disabledTrend` cover the last 30 days — both always return one point per day (zero-filled), even for days with no history events, so charts never have gaps.
+- `highRiskAgents` is the current top 10 agents by `risk_score` (not history-based), ties broken by name.

@@ -610,27 +610,195 @@ regoCopyBtn.addEventListener('click', async () => {
   }
 });
 
-// Dashboard summary stats
-const statAgentsTotal = document.getElementById('statAgentsTotal');
-const statAgentsMonitored = document.getElementById('statAgentsMonitored');
-const statPoliciesTotal = document.getElementById('statPoliciesTotal');
-const statPoliciesEnabled = document.getElementById('statPoliciesEnabled');
+// Dashboard: Milestone 1 Reporting (Mapping, Measuring, Monitoring, Kill Switch)
+const dashboardStatEls = {
+  agentsMapped: document.getElementById('statAgentsMapped'),
+  policiesMapped: document.getElementById('statPoliciesMapped'),
+  agentsLow24h: document.getElementById('statAgentsLow24h'),
+  agentsMedium24h: document.getElementById('statAgentsMedium24h'),
+  agentsHigh24h: document.getElementById('statAgentsHigh24h'),
+  agentsMonitored24h: document.getElementById('statAgentsMonitored24h'),
+  agentsDisabled24h: document.getElementById('statAgentsDisabled24h'),
+};
 
-async function loadDashboardStats() {
+const riskTrendChartEl = document.getElementById('riskTrendChart');
+const riskTrendLegendEl = document.getElementById('riskTrendLegend');
+const monitoredTrendChartEl = document.getElementById('monitoredTrendChart');
+const disabledTrendChartEl = document.getElementById('disabledTrendChart');
+const highRiskTableBody = document.getElementById('highRiskTableBody');
+
+async function loadDashboardReporting() {
   try {
-    const res = await fetch('/api/dashboard/stats');
-    if (!res.ok) throw new Error('Failed to load dashboard stats');
-    const stats = await res.json();
-    statAgentsTotal.textContent = stats.agentsTotal.toLocaleString();
-    statAgentsMonitored.textContent = stats.agentsMonitored.toLocaleString();
-    statPoliciesTotal.textContent = stats.policiesTotal.toLocaleString();
-    statPoliciesEnabled.textContent = stats.policiesEnabled.toLocaleString();
+    const res = await fetch('/api/dashboard/reporting');
+    if (!res.ok) throw new Error('Failed to load dashboard reporting');
+    const data = await res.json();
+    renderDashboardReporting(data);
   } catch (err) {
     console.error(err);
-    [statAgentsTotal, statAgentsMonitored, statPoliciesTotal, statPoliciesEnabled].forEach((el) => {
+    Object.values(dashboardStatEls).forEach((el) => {
       el.textContent = '—';
     });
   }
 }
 
-loadDashboardStats();
+function renderDashboardReporting(data) {
+  dashboardStatEls.agentsMapped.textContent = data.mapping.agentsMapped.toLocaleString();
+  dashboardStatEls.policiesMapped.textContent = data.mapping.policiesMapped.toLocaleString();
+  dashboardStatEls.agentsLow24h.textContent = data.measuring.agentsLow24h.toLocaleString();
+  dashboardStatEls.agentsMedium24h.textContent = data.measuring.agentsMedium24h.toLocaleString();
+  dashboardStatEls.agentsHigh24h.textContent = data.measuring.agentsHigh24h.toLocaleString();
+  dashboardStatEls.agentsMonitored24h.textContent = data.monitoring.agentsMonitored24h.toLocaleString();
+  dashboardStatEls.agentsDisabled24h.textContent = data.killSwitch.agentsDisabled24h.toLocaleString();
+
+  const riskSeries = [
+    { key: 'low', label: 'Low', color: '#2a6df4' },
+    { key: 'medium', label: 'Medium', color: '#d97706' },
+    { key: 'high', label: 'High', color: '#dc2626' },
+  ];
+  riskTrendLegendEl.innerHTML = riskSeries
+    .map(
+      (s) => `
+      <span class="chart-legend-item">
+        <span class="chart-legend-swatch" style="background:${s.color}"></span>${s.label}
+      </span>
+    `
+    )
+    .join('');
+  riskTrendChartEl.innerHTML = buildLineChartSVG(data.measuring.riskTrend, riskSeries);
+
+  monitoredTrendChartEl.innerHTML = buildBarChartSVG(data.monitoring.monitoredTrend, '#4f46e5');
+  disabledTrendChartEl.innerHTML = buildBarChartSVG(data.killSwitch.disabledTrend, '#dc2626');
+
+  highRiskTableBody.innerHTML = '';
+  data.measuring.highRiskAgents.forEach((agent) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${escapeHtml(agent.name)}</td>
+      <td><span class="${riskScoreBadgeClass(agent.riskScore)}">${agent.riskScore}</span></td>
+      <td>${escapeHtml(agent.source)}</td>
+      <td>${agent.monitor ? 'On' : 'Off'}</td>
+      <td><span class="${killSwitchBadgeClass(agent.killSwitchAction)}">${escapeHtml(agent.killSwitchAction)}</span></td>
+    `;
+    highRiskTableBody.appendChild(row);
+  });
+}
+
+function formatShortDate(isoDate) {
+  const d = new Date(isoDate + 'T00:00:00');
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+// Picks evenly-spaced x-axis label indices, always including the last point,
+// but skipping the last regular tick if it would crowd the final label.
+function shouldShowLabel(i, total, labelEvery) {
+  if (i === total - 1) return true;
+  if (i % labelEvery !== 0) return false;
+  return total - 1 - i >= labelEvery / 2;
+}
+
+// Renders a simple multi-series line chart (no external dependencies).
+function buildLineChartSVG(points, series) {
+  if (!points || points.length === 0) {
+    return '<div class="chart-empty">No data yet.</div>';
+  }
+
+  const width = 760;
+  const height = 220;
+  const padLeft = 32;
+  const padRight = 12;
+  const padTop = 12;
+  const padBottom = 28;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+
+  const maxVal = Math.max(1, ...points.flatMap((p) => series.map((s) => p[s.key])));
+  const xStep = points.length > 1 ? plotWidth / (points.length - 1) : 0;
+  const xAt = (i) => padLeft + i * xStep;
+  const yAt = (v) => padTop + plotHeight - (v / maxVal) * plotHeight;
+
+  const gridLines = [0, 0.5, 1]
+    .map((frac) => {
+      const y = padTop + plotHeight * (1 - frac);
+      const label = Math.round(maxVal * frac);
+      return `
+        <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" stroke="#eceef1" stroke-width="1"/>
+        <text x="${padLeft - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="#8b949e">${label}</text>
+      `;
+    })
+    .join('');
+
+  const labelEvery = Math.ceil(points.length / 7);
+  const xLabels = points
+    .map((p, i) => {
+      if (!shouldShowLabel(i, points.length, labelEvery)) return '';
+      return `<text x="${xAt(i)}" y="${height - 8}" text-anchor="middle" font-size="10" fill="#8b949e">${formatShortDate(p.date)}</text>`;
+    })
+    .join('');
+
+  const seriesPaths = series
+    .map((s) => {
+      const linePoints = points.map((p, i) => `${xAt(i)},${yAt(p[s.key])}`).join(' ');
+      const dots = points
+        .map((p, i) => `<circle cx="${xAt(i)}" cy="${yAt(p[s.key])}" r="2.5" fill="${s.color}"/>`)
+        .join('');
+      return `<polyline points="${linePoints}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+    })
+    .join('');
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img">
+      ${gridLines}
+      ${seriesPaths}
+      ${xLabels}
+    </svg>
+  `;
+}
+
+// Renders a simple single-series bar chart (no external dependencies).
+function buildBarChartSVG(points, color) {
+  if (!points || points.length === 0) {
+    return '<div class="chart-empty">No data yet.</div>';
+  }
+
+  const width = 760;
+  const height = 180;
+  const padLeft = 32;
+  const padRight = 12;
+  const padTop = 12;
+  const padBottom = 28;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+
+  const maxVal = Math.max(1, ...points.map((p) => p.count));
+  const slot = plotWidth / points.length;
+  const barWidth = Math.max(2, slot * 0.6);
+
+  const gridLine = `
+    <line x1="${padLeft}" y1="${padTop}" x2="${width - padRight}" y2="${padTop}" stroke="#eceef1" stroke-width="1"/>
+    <line x1="${padLeft}" y1="${padTop + plotHeight}" x2="${width - padRight}" y2="${padTop + plotHeight}" stroke="#eceef1" stroke-width="1"/>
+    <text x="${padLeft - 8}" y="${padTop + 4}" text-anchor="end" font-size="10" fill="#8b949e">${maxVal}</text>
+    <text x="${padLeft - 8}" y="${padTop + plotHeight + 4}" text-anchor="end" font-size="10" fill="#8b949e">0</text>
+  `;
+
+  const labelEvery = Math.ceil(points.length / 8);
+  const bars = points
+    .map((p, i) => {
+      const barHeight = (p.count / maxVal) * plotHeight;
+      const x = padLeft + i * slot + (slot - barWidth) / 2;
+      const y = padTop + plotHeight - barHeight;
+      const label = shouldShowLabel(i, points.length, labelEvery)
+        ? `<text x="${x + barWidth / 2}" y="${height - 8}" text-anchor="middle" font-size="10" fill="#8b949e">${formatShortDate(p.date)}</text>`
+        : '';
+      return `<rect x="${x}" y="${y}" width="${barWidth}" height="${Math.max(0, barHeight)}" rx="1.5" fill="${color}"/>${label}`;
+    })
+    .join('');
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" role="img">
+      ${gridLine}
+      ${bars}
+    </svg>
+  `;
+}
+
+loadDashboardReporting();

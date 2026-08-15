@@ -64,26 +64,93 @@
   <main class="content">
     <div class="view" id="defaultView">
       <h1>Dashboard</h1>
-      <p>Live inventory summary from the AI Assets Discovery tables.</p>
+      <p>Milestone 1 Reporting &mdash; live from the AI Assets Discovery tables.</p>
 
-      <div class="stat-grid" id="dashboardStats">
-        <div class="stat-card">
-          <span class="stat-value" id="statAgentsTotal">&ndash;</span>
-          <span class="stat-label">Agents mapped</span>
+      <section class="report-section">
+        <h2 class="report-section-title">Mapping</h2>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsMapped">&ndash;</span>
+            <span class="stat-label">Agents mapped</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statPoliciesMapped">&ndash;</span>
+            <span class="stat-label">Policies mapped</span>
+          </div>
         </div>
-        <div class="stat-card">
-          <span class="stat-value" id="statAgentsMonitored">&ndash;</span>
-          <span class="stat-label">Agents monitored</span>
+      </section>
+
+      <section class="report-section">
+        <h2 class="report-section-title">Measuring</h2>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsLow24h">&ndash;</span>
+            <span class="stat-label">Agents low (past 24h)</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsMedium24h">&ndash;</span>
+            <span class="stat-label">Agents medium (past 24h)</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsHigh24h">&ndash;</span>
+            <span class="stat-label">Agents high (past 24h)</span>
+          </div>
         </div>
-        <div class="stat-card">
-          <span class="stat-value" id="statPoliciesTotal">&ndash;</span>
-          <span class="stat-label">Policies mapped</span>
+
+        <div class="chart-card">
+          <div class="chart-card-header">
+            <h3>Risk scoring &mdash; trend over past 2 weeks</h3>
+            <div class="chart-legend" id="riskTrendLegend"></div>
+          </div>
+          <div id="riskTrendChart"></div>
         </div>
-        <div class="stat-card">
-          <span class="stat-value" id="statPoliciesEnabled">&ndash;</span>
-          <span class="stat-label">Policies enabled</span>
+
+        <div class="table-card">
+          <h3>High risk agents (top 10)</h3>
+          <div class="table-scroll">
+            <table class="integrations-table" id="highRiskTable">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Risk score</th>
+                  <th>Source</th>
+                  <th>Monitor</th>
+                  <th>Kill switch action</th>
+                </tr>
+              </thead>
+              <tbody id="highRiskTableBody"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section class="report-section">
+        <h2 class="report-section-title">Monitoring</h2>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsMonitored24h">&ndash;</span>
+            <span class="stat-label">Agents monitored (past 24h)</span>
+          </div>
+        </div>
+        <div class="chart-card">
+          <h3>Agents monitored &mdash; trend over past month</h3>
+          <div id="monitoredTrendChart"></div>
+        </div>
+      </section>
+
+      <section class="report-section">
+        <h2 class="report-section-title">Kill Switch</h2>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="statAgentsDisabled24h">&ndash;</span>
+            <span class="stat-label">Agents disabled (past 24h)</span>
+          </div>
+        </div>
+        <div class="chart-card">
+          <h3>Agents disabled &mdash; trend over past month</h3>
+          <div id="disabledTrendChart"></div>
+        </div>
+      </section>
     </div>
 
     <div class="view" id="agentsView" hidden>
@@ -259,6 +326,6 @@
   </div>
 </div>
 
-<script src="script.js?v=15"></script>
+<script src="script.js?v=17"></script>
 </body>
 </html>
