@@ -133,7 +133,8 @@ curl "http://localhost:8080/api/agents?search=dialogflow&limit=50&offset=0"
       "risks": 0,
       "monitor": false,
       "source": "Wiz-Prod",
-      "killSwitchAction": "not taken"
+      "killSwitchAction": "not taken",
+      "riskScore": 0
     }
   ],
   "total": 6772,
@@ -178,6 +179,26 @@ Intended for use by an **external service** (not the workspace UI) to record a k
 
 ```json
 { "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "killSwitchAction": "deactivated" }
+```
+
+`404` if the id doesn't exist.
+
+### `PATCH /api/agents/{id}/risk-score`
+
+Intended for use by an **external service** (not the workspace UI) to push a computed risk score for an agent. Seed data is distributed ~90% at `0`, ~9% in `50`-`60`, ~2% in `70`-`80` — the endpoint itself accepts any integer `0`-`100`.
+
+**Request body:**
+
+```json
+{ "riskScore": 82 }
+```
+
+`riskScore` must be an integer between `0` and `100` inclusive — any other value returns `400`.
+
+**Response `200`:**
+
+```json
+{ "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 82 }
 ```
 
 `404` if the id doesn't exist.

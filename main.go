@@ -76,6 +76,7 @@ func main() {
 	mux.HandleFunc("GET /api/agents", listAgents)
 	mux.HandleFunc("PATCH /api/agents/{id}/monitor", updateAgentMonitor)
 	mux.HandleFunc("PATCH /api/agents/{id}/kill-switch-action", updateAgentKillSwitchAction)
+	mux.HandleFunc("PATCH /api/agents/{id}/risk-score", updateAgentRiskScore)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)

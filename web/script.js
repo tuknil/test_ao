@@ -315,6 +315,7 @@ function renderAgentsTable(data) {
       <td>
         <button type="button" class="risk-badge${agent.risks > 0 ? ' has-risks' : ''}" data-action="risks">${agent.risks}</button>
       </td>
+      <td><span class="${riskScoreBadgeClass(agent.riskScore)}">${agent.riskScore}</span></td>
       <td>
         <label class="monitor-toggle">
           <input type="checkbox" data-action="monitor" ${agent.monitor ? 'checked' : ''}>
@@ -355,6 +356,13 @@ function killSwitchBadgeClass(action) {
   if (action === 'deactivated') return 'kill-switch-badge is-deactivated';
   if (action === 'reactivated') return 'kill-switch-badge is-reactivated';
   return 'kill-switch-badge';
+}
+
+function riskScoreBadgeClass(score) {
+  if (score >= 70) return 'severity-badge severity-high';
+  if (score >= 50) return 'severity-badge severity-medium';
+  if (score > 0) return 'severity-badge severity-low';
+  return 'severity-badge severity-informational';
 }
 
 agentsSearchInput.addEventListener('input', () => {
