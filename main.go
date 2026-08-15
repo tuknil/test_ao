@@ -75,6 +75,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/wiz-integrations/{id}", deleteWizIntegration)
 	mux.HandleFunc("GET /api/agents", listAgents)
 	mux.HandleFunc("PATCH /api/agents/{id}/monitor", updateAgentMonitor)
+	mux.HandleFunc("PATCH /api/agents/{id}/kill-switch-action", updateAgentKillSwitchAction)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)

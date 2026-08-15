@@ -322,6 +322,7 @@ function renderAgentsTable(data) {
           <span class="thumb"></span>
         </label>
       </td>
+      <td><span class="${killSwitchBadgeClass(agent.killSwitchAction)}">${escapeHtml(agent.killSwitchAction)}</span></td>
     `;
     row.querySelector('[data-action="risks"]').addEventListener('click', () => openRiskModal(agent));
     row.querySelector('[data-action="monitor"]').addEventListener('change', (e) => handleMonitorToggle(agent, e.target));
@@ -348,6 +349,12 @@ function formatDate(value) {
   const d = new Date(value);
   if (isNaN(d.getTime())) return value;
   return d.toLocaleDateString();
+}
+
+function killSwitchBadgeClass(action) {
+  if (action === 'deactivated') return 'kill-switch-badge is-deactivated';
+  if (action === 'reactivated') return 'kill-switch-badge is-reactivated';
+  return 'kill-switch-badge';
 }
 
 agentsSearchInput.addEventListener('input', () => {

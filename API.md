@@ -132,7 +132,8 @@ curl "http://localhost:8080/api/agents?search=dialogflow&limit=50&offset=0"
       "updatedAt": "2026-07-20T09:37:45Z",
       "risks": 0,
       "monitor": false,
-      "source": "Wiz-Prod"
+      "source": "Wiz-Prod",
+      "killSwitchAction": "not taken"
     }
   ],
   "total": 6772,
@@ -157,6 +158,26 @@ Toggle whether an agent is monitored. `{id}` is the agent's string `id` (not `ag
 
 ```json
 { "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "monitor": true }
+```
+
+`404` if the id doesn't exist.
+
+### `PATCH /api/agents/{id}/kill-switch-action`
+
+Intended for use by an **external service** (not the workspace UI) to record a kill-switch action taken on an agent.
+
+**Request body:**
+
+```json
+{ "action": "deactivated" }
+```
+
+`action` must be one of `"not taken"`, `"deactivated"`, `"reactivated"` — any other value returns `400`.
+
+**Response `200`:**
+
+```json
+{ "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "killSwitchAction": "deactivated" }
 ```
 
 `404` if the id doesn't exist.
