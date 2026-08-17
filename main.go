@@ -97,6 +97,7 @@ func main() {
 	mux.HandleFunc("GET /api/agents/{id}/monitor-history", listAgentMonitorHistory)
 	mux.HandleFunc("GET /api/agents/{id}/kill-switch-history", listAgentKillSwitchHistory)
 	mux.HandleFunc("GET /api/agents/{id}/risk-score-history", listAgentRiskScoreHistory)
+	mux.HandleFunc("POST /api/admin/reseed-risk-scores", reseedAgentRiskScoresHandler)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
