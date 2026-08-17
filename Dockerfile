@@ -18,6 +18,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/ingestion-server ./ingestion-server
 COPY data/ ./data/
+COPY web/ ./web/
 RUN mkdir -p /app/pgvolume && chown -R app:app /app
 USER app
 
