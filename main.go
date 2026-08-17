@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -28,11 +29,24 @@ type WizIntegration struct {
 var db *sql.DB
 
 func main() {
+	// embedded-postgres always wipes its RuntimePath (extracted binaries) on
+	// every Start(), but it will reuse an existing DataPath if PG_VERSION
+	// there matches the pinned Version below — so DataPath must live outside
+	// RuntimePath to survive restarts. Set via PGDATA_PATH (see Dockerfile /
+	// docker-compose volume); must not be a volume mount point itself, since
+	// embedded-postgres os.RemoveAll()s this path on a fresh start.
+	dataPath := os.Getenv("PGDATA_PATH")
+	if dataPath == "" {
+		dataPath = "./pgdata"
+	}
+
 	pg := embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
 		Username("postgres").
 		Password("postgres").
 		Database("wizworkspace").
 		Port(5433).
+		Version(embeddedpostgres.V18).
+		DataPath(dataPath).
 		Logger(nil))
 
 	log.Println("starting embedded postgres...")
@@ -57,6 +71,9 @@ func main() {
 	if err := migrateAgents(db); err != nil {
 		log.Fatalf("failed to migrate agents: %v", err)
 	}
+	if err := migrateHistoryTables(db); err != nil {
+		log.Fatalf("failed to migrate history tables: %v", err)
+	}
 	if err := importAgentsFromCSV(db, "./data/agents.csv"); err != nil {
 		log.Fatalf("failed to import agents: %v", err)
 	}
@@ -75,9 +92,15 @@ func main() {
 	mux.HandleFunc("DELETE /api/wiz-integrations/{id}", deleteWizIntegration)
 	mux.HandleFunc("GET /api/agents", listAgents)
 	mux.HandleFunc("PATCH /api/agents/{id}/monitor", updateAgentMonitor)
+	mux.HandleFunc("PATCH /api/agents/{id}/kill-switch-action", updateAgentKillSwitchAction)
+	mux.HandleFunc("PATCH /api/agents/{id}/risk-score", updateAgentRiskScore)
+	mux.HandleFunc("GET /api/agents/{id}/monitor-history", listAgentMonitorHistory)
+	mux.HandleFunc("GET /api/agents/{id}/kill-switch-history", listAgentKillSwitchHistory)
+	mux.HandleFunc("GET /api/agents/{id}/risk-score-history", listAgentRiskScoreHistory)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
+	mux.HandleFunc("GET /api/dashboard/reporting", getDashboardReporting)
 	mux.Handle("/", noCacheStatic(http.FileServer(http.Dir("./web"))))
 
 	addr := ":8080"

@@ -132,7 +132,9 @@ curl "http://localhost:8080/api/agents?search=dialogflow&limit=50&offset=0"
       "updatedAt": "2026-07-20T09:37:45Z",
       "risks": 0,
       "monitor": false,
-      "source": "Wiz-Prod"
+      "source": "Wiz-Prod",
+      "killSwitchAction": "not taken",
+      "riskScore": 0
     }
   ],
   "total": 6772,
@@ -160,6 +162,84 @@ Toggle whether an agent is monitored. `{id}` is the agent's string `id` (not `ag
 ```
 
 `404` if the id doesn't exist.
+
+### `PATCH /api/agents/{id}/kill-switch-action`
+
+Intended for use by an **external service** (not the workspace UI) to record a kill-switch action taken on an agent.
+
+**Request body:**
+
+```json
+{ "action": "deactivated" }
+```
+
+`action` must be one of `"not taken"`, `"deactivated"`, `"reactivated"` — any other value returns `400`.
+
+**Response `200`:**
+
+```json
+{ "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "killSwitchAction": "deactivated" }
+```
+
+`404` if the id doesn't exist.
+
+### `PATCH /api/agents/{id}/risk-score`
+
+Intended for use by an **external service** (not the workspace UI) to push a computed risk score for an agent. Seed data is distributed ~90% at `0`, ~9% in `50`-`60`, ~2% in `70`-`80` — the endpoint itself accepts any integer `0`-`100`.
+
+**Request body:**
+
+```json
+{ "riskScore": 82 }
+```
+
+`riskScore` must be an integer between `0` and `100` inclusive — any other value returns `400`.
+
+**Response `200`:**
+
+```json
+{ "id": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 82 }
+```
+
+`404` if the id doesn't exist.
+
+### History
+
+Every `monitor`, `kill-switch-action`, and `risk-score` update appends a **state snapshot** row (the value at that moment, plus a timestamp) — not a before/after transition. Each `PATCH` above writes its history row in the same transaction as the update, so the two never drift.
+
+#### `GET /api/agents/{id}/monitor-history`
+
+```json
+{
+  "items": [
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "monitor": false, "changedAt": "2026-08-15T05:43:44.717495Z" },
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "monitor": true, "changedAt": "2026-08-15T05:40:12.101223Z" }
+  ]
+}
+```
+
+#### `GET /api/agents/{id}/kill-switch-history`
+
+```json
+{
+  "items": [
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "action": "deactivated", "changedAt": "2026-08-15T05:43:44.745161Z" }
+  ]
+}
+```
+
+#### `GET /api/agents/{id}/risk-score-history`
+
+```json
+{
+  "items": [
+    { "id": 2, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 95, "changedAt": "2026-08-15T05:43:52.197286Z" },
+    { "id": 1, "agentId": "fb730e4c-798d-5d5f-8daf-2b848657ac2d", "riskScore": 77, "changedAt": "2026-08-15T05:43:44.760909Z" }
+  ]
+}
+```
+
+All three: newest first (`changed_at DESC`), optional `limit` query param (default `100`, max `500`). Unknown `{id}` returns `{"items": []}`, not `404` — history is inherently empty for an agent with no recorded changes.
 
 ---
 
@@ -238,3 +318,54 @@ curl http://localhost:8080/api/dashboard/stats
   "policiesEnabled": 1
 }
 ```
+
+### `GET /api/dashboard/reporting`
+
+Powers the Dashboard view's Milestone 1 Reporting layout: Mapping, Measuring, Monitoring, Kill Switch. (Prompt Injection reporting is intentionally out of scope.) Computed from `agents`, `policies`, and the three agent history tables — no separate reporting tables.
+
+```bash
+curl http://localhost:8080/api/dashboard/reporting
+```
+
+**Response `200`:**
+
+```json
+{
+  "mapping": {
+    "agentsMapped": 6772,
+    "policiesMapped": 450
+  },
+  "measuring": {
+    "agentsLow24h": 2,
+    "agentsMedium24h": 1,
+    "agentsHigh24h": 2,
+    "riskTrend": [
+      { "date": "2026-08-02", "low": 0, "medium": 0, "high": 0 },
+      { "date": "2026-08-15", "low": 2, "medium": 1, "high": 2 }
+    ],
+    "highRiskAgents": [
+      { "id": "622acbfe-...", "name": "ABSVoiceAgent-QA-ST1-W", "riskScore": 85, "source": "Wiz-Prod", "killSwitchAction": "not taken", "monitor": true }
+    ]
+  },
+  "monitoring": {
+    "agentsMonitored24h": 5,
+    "monitoredTrend": [
+      { "date": "2026-07-17", "count": 0 },
+      { "date": "2026-08-15", "count": 5 }
+    ]
+  },
+  "killSwitch": {
+    "agentsDisabled24h": 1,
+    "disabledTrend": [
+      { "date": "2026-07-17", "count": 0 },
+      { "date": "2026-08-15", "count": 1 }
+    ]
+  }
+}
+```
+
+Notes:
+- All `*24h` counts and the `highRiskAgents` risk-bucket assignment count **distinct agents**, not raw events.
+- Risk buckets: `low` = score `< 50`, `medium` = `50`-`69`, `high` = `>= 70`.
+- `riskTrend` covers the last 14 days, `monitoredTrend`/`disabledTrend` cover the last 30 days — both always return one point per day (zero-filled), even for days with no history events, so charts never have gaps.
+- `highRiskAgents` is the current top 10 agents by `risk_score` (not history-based), ties broken by name.

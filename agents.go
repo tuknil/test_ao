@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -33,6 +34,14 @@ type Agent struct {
 	Risks            int    `json:"risks"`
 	Monitor          bool   `json:"monitor"`
 	Source           string `json:"source"`
+	KillSwitchAction string `json:"killSwitchAction"`
+	RiskScore        int    `json:"riskScore"`
+}
+
+var validKillSwitchActions = map[string]bool{
+	"not taken":   true,
+	"deactivated": true,
+	"reactivated": true,
 }
 
 func md5Hex(s string) string {
@@ -64,6 +73,9 @@ func migrateAgents(db *sql.DB) error {
 		ALTER TABLE agents ALTER COLUMN monitor SET DEFAULT false;
 		ALTER TABLE agents ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'Wiz-Prod';
 		ALTER TABLE agents ALTER COLUMN source SET DEFAULT 'Wiz-Prod';
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS kill_switch_action TEXT NOT NULL DEFAULT 'not taken';
+		ALTER TABLE agents ALTER COLUMN kill_switch_action SET DEFAULT 'not taken';
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0;
 	`)
 	return err
 }
@@ -102,8 +114,8 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	stmt, err := tx.Prepare(`
-		INSERT INTO agents (id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO agents (id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risk_score)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (id) DO NOTHING
 	`)
 	if err != nil {
@@ -111,6 +123,21 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	defer stmt.Close()
+
+	// Deterministic seed so re-imports (fresh DBs) get the same distribution:
+	// ~90% score 0, ~8% score 50-60, ~2% score 70-80.
+	rng := rand.New(rand.NewSource(42))
+	seedRiskScore := func() int {
+		roll := rng.Float64()
+		switch {
+		case roll < 0.02:
+			return 70 + rng.Intn(11)
+		case roll < 0.10:
+			return 50 + rng.Intn(11)
+		default:
+			return 0
+		}
+	}
 
 	get := func(row []string, key string) string {
 		if i, ok := col[key]; ok && i < len(row) {
@@ -150,6 +177,7 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			get(row, "firstSeen"),
 			get(row, "createdAt"),
 			get(row, "updatedAt"),
+			seedRiskScore(),
 		)
 		if err != nil {
 			tx.Rollback()
@@ -213,7 +241,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source
+	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score
 	          FROM agents ` + whereClause + `
 	          ORDER BY name
 	          LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
@@ -229,7 +257,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 	items := []Agent{}
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -258,7 +286,14 @@ func updateAgentMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := db.Exec(`UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id)
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -268,5 +303,120 @@ func updateAgentMonitor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	if _, err := tx.Exec(
+		`INSERT INTO agent_monitor_history (agent_id, monitor) VALUES ($1, $2)`,
+		id, payload.Monitor,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "monitor": payload.Monitor})
+}
+
+type agentKillSwitchPayload struct {
+	Action string `json:"action"`
+}
+
+// updateAgentKillSwitchAction is intended for use by an external service
+// (not the UI) to mark an agent's kill-switch state as one of "not taken",
+// "deactivated", or "reactivated".
+func updateAgentKillSwitchAction(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var payload agentKillSwitchPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if !validKillSwitchActions[payload.Action] {
+		writeError(w, http.StatusBadRequest, `action must be one of "not taken", "deactivated", "reactivated"`)
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`UPDATE agents SET kill_switch_action = $1 WHERE id = $2`, payload.Action, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO agent_kill_switch_history (agent_id, action) VALUES ($1, $2)`,
+		id, payload.Action,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "killSwitchAction": payload.Action})
+}
+
+type agentRiskScorePayload struct {
+	RiskScore int `json:"riskScore"`
+}
+
+// updateAgentRiskScore is intended for use by an external service (not the
+// UI) to push a computed risk score (0-100) for an agent.
+func updateAgentRiskScore(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var payload agentRiskScorePayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if payload.RiskScore < 0 || payload.RiskScore > 100 {
+		writeError(w, http.StatusBadRequest, "riskScore must be between 0 and 100")
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`UPDATE agents SET risk_score = $1 WHERE id = $2`, payload.RiskScore, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO agent_risk_score_history (agent_id, risk_score) VALUES ($1, $2)`,
+		id, payload.RiskScore,
+	); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "riskScore": payload.RiskScore})
 }

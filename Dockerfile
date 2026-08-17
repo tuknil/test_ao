@@ -18,8 +18,15 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/ingestion-server ./ingestion-server
 COPY data/ ./data/
-RUN chown -R app:app /app
+RUN mkdir -p /app/pgvolume && chown -R app:app /app
 USER app
+
+# Mount a volume at /app/pgvolume (see docker-compose.yml) so the embedded
+# Postgres data directory survives container recreation, not just restarts.
+# PGDATA_PATH must be a subdirectory *inside* that mount, not the mount
+# point itself — embedded-postgres os.RemoveAll()s this path on a fresh
+# start, and you can't unlink a volume's mount point (device busy).
+ENV PGDATA_PATH=/app/pgvolume/data
 
 EXPOSE 8080
 CMD ["./ingestion-server"]

@@ -1,0 +1,772 @@
+openapi: 3.0.3
+info:
+  title: Agentic Overlay API
+  description: |
+    API for the Agentic Overlay workspace: AI Assets Discovery (agents, policies),
+    Integrations (Wiz/Astra/Datalock sources and sinks), and the Milestone 1
+    Reporting dashboard. There is no authentication layer — this is a local/demo
+    workspace app.
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+    description: Direct against the app (or via the UI's nginx proxy on the same port)
+  - url: http://localhost:8081
+    description: API container directly, when running via docker compose
+
+tags:
+  - name: Integrations
+    description: Generic CRUD for AI Assets Sources / Policy Sinks / Telemetry Sources / Signal Sinks connections
+  - name: Agents
+    description: Read-only inventory imported from data/agents.csv, plus mutable monitoring/kill-switch/risk-score fields
+  - name: Agent History
+    description: Time-series state snapshots for agent monitor/kill-switch/risk-score changes
+  - name: Policies
+    description: Read-only inventory imported from data/policies.csv, plus a toggleable enabled field
+  - name: Dashboard
+    description: Live counts and the Milestone 1 Reporting view
+
+paths:
+  /api/wiz-integrations:
+    get:
+      tags: [Integrations]
+      summary: List all integrations
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Integration"
+    post:
+      tags: [Integrations]
+      summary: Create an integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationCreateRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/wiz-integrations/{id}:
+    get:
+      tags: [Integrations]
+      summary: Get a single integration
+      parameters:
+        - $ref: "#/components/parameters/IntegrationId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Integrations]
+      summary: Update an integration
+      description: |
+        `type` is immutable after creation (ignored if sent). `clientSecret` is
+        optional — omit or send an empty string to keep the existing secret unchanged.
+      parameters:
+        - $ref: "#/components/parameters/IntegrationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntegrationUpdateRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Integration"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Integrations]
+      summary: Delete an integration
+      parameters:
+        - $ref: "#/components/parameters/IntegrationId"
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/agents:
+    get:
+      tags: [Agents]
+      summary: List agents
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentListResponse"
+
+  /api/agents/{id}/monitor:
+    patch:
+      tags: [Agents]
+      summary: Toggle whether an agent is monitored
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [monitor]
+              properties:
+                monitor:
+                  type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  monitor:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/agents/{id}/kill-switch-action:
+    patch:
+      tags: [Agents]
+      summary: Record a kill-switch action for an agent
+      description: Intended for use by an external service, not the workspace UI.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: ["not taken", deactivated, reactivated]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  killSwitchAction:
+                    type: string
+                    enum: ["not taken", deactivated, reactivated]
+        "400":
+          description: Invalid or missing `action`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/agents/{id}/risk-score:
+    patch:
+      tags: [Agents]
+      summary: Push a computed risk score for an agent
+      description: |
+        Intended for use by an external service, not the workspace UI. Seed data
+        is distributed ~90% at 0, ~9% in 50-60, ~2% in 70-80 — the endpoint itself
+        accepts any integer 0-100.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [riskScore]
+              properties:
+                riskScore:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  riskScore:
+                    type: integer
+        "400":
+          description: riskScore must be between 0 and 100
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/agents/{id}/monitor-history:
+    get:
+      tags: [Agent History]
+      summary: Monitor state history for an agent
+      description: |
+        State snapshots (not transitions) — each row is the value at that
+        point in time. Unknown `{id}` returns an empty list, not 404.
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/HistoryLimit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MonitorHistoryEntry"
+
+  /api/agents/{id}/kill-switch-history:
+    get:
+      tags: [Agent History]
+      summary: Kill-switch action history for an agent
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/HistoryLimit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KillSwitchHistoryEntry"
+
+  /api/agents/{id}/risk-score-history:
+    get:
+      tags: [Agent History]
+      summary: Risk score history for an agent
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+        - $ref: "#/components/parameters/HistoryLimit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RiskScoreHistoryEntry"
+
+  /api/policies:
+    get:
+      tags: [Policies]
+      summary: List policies
+      description: |
+        Each item includes a **generated, illustrative** Rego snippet derived
+        from the policy's name/type/severity/cloud fields — not sourced from
+        Wiz or any real policy engine.
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyListResponse"
+
+  /api/policies/{id}/enabled:
+    patch:
+      tags: [Policies]
+      summary: Toggle whether a policy is enabled
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  enabled:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/dashboard/stats:
+    get:
+      tags: [Dashboard]
+      summary: Live inventory counts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /api/dashboard/reporting:
+    get:
+      tags: [Dashboard]
+      summary: Milestone 1 Reporting (Mapping, Measuring, Monitoring, Kill Switch)
+      description: |
+        Powers the Dashboard view. Computed from `agents`, `policies`, and the
+        three agent history tables — no separate reporting tables. Prompt
+        Injection reporting is intentionally out of scope.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportingResponse"
+
+components:
+  parameters:
+    IntegrationId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    AgentId:
+      name: id
+      in: path
+      required: true
+      description: The agent's string `id` (not `agenticOverlayId`)
+      schema:
+        type: string
+    Search:
+      name: search
+      in: query
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      description: Default 50, max 200
+      schema:
+        type: integer
+    Offset:
+      name: offset
+      in: query
+      description: Default 0
+      schema:
+        type: integer
+    HistoryLimit:
+      name: limit
+      in: query
+      description: Default 100, max 500
+      schema:
+        type: integer
+
+  responses:
+    BadRequest:
+      description: Invalid request body or path parameter
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No resource with that id
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    Integration:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          example: Wiz
+        baseUrl:
+          type: string
+        clientId:
+          type: string
+        hasSecret:
+          type: boolean
+          description: clientSecret is never returned — only whether one is set
+        mcpServer:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    IntegrationCreateRequest:
+      type: object
+      required: [name, baseUrl, clientId, clientSecret]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          description: Defaults to "Wiz" if omitted
+        baseUrl:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+        mcpServer:
+          type: string
+
+    IntegrationUpdateRequest:
+      type: object
+      required: [name, baseUrl, clientId]
+      properties:
+        name:
+          type: string
+        baseUrl:
+          type: string
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+          description: Omit or send "" to keep the existing secret
+        mcpServer:
+          type: string
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+        agenticOverlayId:
+          type: string
+          description: MD5 hash of id, computed on every request (not stored)
+        externalId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        nativeType:
+          type: string
+        technologyName:
+          type: string
+        cloudPlatform:
+          type: string
+        cloudProvider:
+          type: string
+        status:
+          type: string
+        region:
+          type: string
+        projects:
+          type: string
+        firstSeen:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        risks:
+          type: integer
+        monitor:
+          type: boolean
+        source:
+          type: string
+          example: Wiz-Prod
+        killSwitchAction:
+          type: string
+          enum: ["not taken", deactivated, reactivated]
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    AgentListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    MonitorHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        agentId:
+          type: string
+        monitor:
+          type: boolean
+        changedAt:
+          type: string
+          format: date-time
+
+    KillSwitchHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        agentId:
+          type: string
+        action:
+          type: string
+          enum: ["not taken", deactivated, reactivated]
+        changedAt:
+          type: string
+          format: date-time
+
+    RiskScoreHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        agentId:
+          type: string
+        riskScore:
+          type: integer
+        changedAt:
+          type: string
+          format: date-time
+
+    Policy:
+      type: object
+      properties:
+        id:
+          type: string
+        policyId:
+          type: string
+        name:
+          type: string
+        policyType:
+          type: string
+        updateType:
+          type: string
+        severity:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW, INFORMATIONAL]
+        cloudPlatform:
+          type: string
+        releasedAt:
+          type: string
+        applyDate:
+          type: string
+        regoPolicy:
+          type: string
+          description: Generated/illustrative — not real policy engine source
+        enabled:
+          type: boolean
+
+    PolicyListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Policy"
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    DashboardStats:
+      type: object
+      properties:
+        agentsTotal:
+          type: integer
+        agentsMonitored:
+          type: integer
+        policiesTotal:
+          type: integer
+        policiesEnabled:
+          type: integer
+
+    ReportingMapping:
+      type: object
+      properties:
+        agentsMapped:
+          type: integer
+        policiesMapped:
+          type: integer
+
+    RiskTrendPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        low:
+          type: integer
+        medium:
+          type: integer
+        high:
+          type: integer
+
+    HighRiskAgent:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        riskScore:
+          type: integer
+        source:
+          type: string
+        killSwitchAction:
+          type: string
+        monitor:
+          type: boolean
+
+    ReportingMeasuring:
+      type: object
+      description: Risk buckets — low < 50, medium 50-69, high >= 70
+      properties:
+        agentsLow24h:
+          type: integer
+        agentsMedium24h:
+          type: integer
+        agentsHigh24h:
+          type: integer
+        riskTrend:
+          type: array
+          description: One point per day, last 14 days, zero-filled
+          items:
+            $ref: "#/components/schemas/RiskTrendPoint"
+        highRiskAgents:
+          type: array
+          description: Current top 10 agents by riskScore (not history-based)
+          items:
+            $ref: "#/components/schemas/HighRiskAgent"
+
+    TrendPoint:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        count:
+          type: integer
+
+    ReportingMonitoring:
+      type: object
+      properties:
+        agentsMonitored24h:
+          type: integer
+        monitoredTrend:
+          type: array
+          description: One point per day, last 30 days, zero-filled
+          items:
+            $ref: "#/components/schemas/TrendPoint"
+
+    ReportingKillSwitch:
+      type: object
+      properties:
+        agentsDisabled24h:
+          type: integer
+        disabledTrend:
+          type: array
+          description: One point per day, last 30 days, zero-filled
+          items:
+            $ref: "#/components/schemas/TrendPoint"
+
+    ReportingResponse:
+      type: object
+      properties:
+        mapping:
+          $ref: "#/components/schemas/ReportingMapping"
+        measuring:
+          $ref: "#/components/schemas/ReportingMeasuring"
+        monitoring:
+          $ref: "#/components/schemas/ReportingMonitoring"
+        killSwitch:
+          $ref: "#/components/schemas/ReportingKillSwitch"
