@@ -19,10 +19,6 @@ const (
 	redisKeyAgentsMapped   = "agentic_overlay:agents_mapped"
 	redisKeyModelsMapped   = "agentic_overlay:models_mapped"
 	redisKeyPoliciesMapped = "agentic_overlay:policies_mapped"
-
-	azureRedisHost     = "36665-eastus2-nprd-ao-redis.eastus2.redis.azure.net"
-	azureRedisPort     = 10000
-	azureRedisUsername = "c55d605a-491e-4505-86f4-3f73ec401a9e"
 )
 
 // newRedisClient picks a client based on REDIS_ENV: "PROD" connects to Azure
@@ -61,7 +57,15 @@ func newDevRedisClient() *redis.Client {
 // the caller doesn't have to handle a nil client) but every command against
 // it will fail and be logged by the best-effort callers.
 func newProdRedisClient() *redis.Client {
-	addr := fmt.Sprintf("%s:%d", azureRedisHost, azureRedisPort)
+	host := envOrDefault("AZURE_REDIS_HOST", "")
+	port := envOrDefault("AZURE_REDIS_PORT", "10000")
+	username := envOrDefault("AZURE_REDIS_USERNAME", "")
+	addr := fmt.Sprintf("%s:%s", host, port)
+
+	if host == "" || username == "" {
+		log.Printf("redis: AZURE_REDIS_HOST/AZURE_REDIS_USERNAME not set")
+		return redis.NewClient(&redis.Options{Addr: addr})
+	}
 
 	cred, err := azidentity.NewManagedIdentityCredential(nil)
 	if err != nil {
@@ -78,7 +82,7 @@ func newProdRedisClient() *redis.Client {
 			if err != nil {
 				return "", "", fmt.Errorf("redis: fetch azure ad token: %w", err)
 			}
-			return azureRedisUsername, token.Token, nil
+			return username, token.Token, nil
 		},
 		ConnMaxLifetime:       30 * time.Minute,
 		ConnMaxLifetimeJitter: 5 * time.Minute,

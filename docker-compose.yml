@@ -41,7 +41,10 @@ services:
         condition: service_started
     environment:
       - REDIS_ENV=DEV
-      - REDIS_ADDR=redis:6379
+      - REDIS_ADDR=redis:6379 # used when REDIS_ENV=DEV
+      - AZURE_REDIS_HOST=36665-eastus2-nprd-ao-redis.eastus2.redis.azure.net # used when REDIS_ENV=PROD
+      - AZURE_REDIS_PORT=10000
+      - AZURE_REDIS_USERNAME=c55d605a-491e-4505-86f4-3f73ec401a9e
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5433
       - POSTGRES_USER=postgres
