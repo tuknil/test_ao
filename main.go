@@ -3,13 +3,13 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	_ "github.com/lib/pq"
 )
 
@@ -29,41 +29,27 @@ type WizIntegration struct {
 var db *sql.DB
 
 func main() {
-	// embedded-postgres always wipes its RuntimePath (extracted binaries) on
-	// every Start(), but it will reuse an existing DataPath if PG_VERSION
-	// there matches the pinned Version below — so DataPath must live outside
-	// RuntimePath to survive restarts. Set via PGDATA_PATH (see Dockerfile /
-	// docker-compose volume); must not be a volume mount point itself, since
-	// embedded-postgres os.RemoveAll()s this path on a fresh start.
-	dataPath := os.Getenv("PGDATA_PATH")
-	if dataPath == "" {
-		dataPath = "./pgdata"
-	}
-
-	pg := embeddedpostgres.NewDatabase(embeddedpostgres.DefaultConfig().
-		Username("postgres").
-		Password("postgres").
-		Database("wizworkspace").
-		Port(5433).
-		Version(embeddedpostgres.V18).
-		DataPath(dataPath).
-		Logger(nil))
-
-	log.Println("starting embedded postgres...")
-	if err := pg.Start(); err != nil {
-		log.Fatalf("failed to start embedded postgres: %v", err)
-	}
-	defer func() {
-		log.Println("stopping embedded postgres...")
-		_ = pg.Stop()
-	}()
+	dsn := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		envOrDefault("POSTGRES_HOST", "localhost"),
+		envOrDefault("POSTGRES_PORT", "5433"),
+		envOrDefault("POSTGRES_USER", "postgres"),
+		envOrDefault("POSTGRES_PASSWORD", "postgres"),
+		envOrDefault("POSTGRES_DB", "wizworkspace"),
+	)
 
 	var err error
-	db, err = sql.Open("postgres", "host=localhost port=5433 user=postgres password=postgres dbname=wizworkspace sslmode=disable")
+	db, err = sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("failed to open db: %v", err)
 	}
 	defer db.Close()
+
+	log.Println("waiting for postgres...")
+	if err := waitForDB(db, 30*time.Second); err != nil {
+		log.Fatalf("postgres never became reachable: %v", err)
+	}
+	log.Println("connected to postgres")
 
 	if err := migrate(db); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
@@ -120,6 +106,29 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// waitForDB retries Ping until Postgres accepts connections or timeout
+// elapses. Needed because docker-compose's depends_on (even with a
+// healthcheck) only guarantees container start ordering, not that the
+// database inside is actually ready to accept connections yet.
+func waitForDB(db *sql.DB, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if lastErr = db.Ping(); lastErr == nil {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return lastErr
 }
 
 func migrate(db *sql.DB) error {

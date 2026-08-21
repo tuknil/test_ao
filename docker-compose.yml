@@ -1,6 +1,26 @@
 name: agentic-overlay
 
 services:
+  postgres:
+    container_name: postgres
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=wizworkspace
+    command: ["-p", "5433"] # keep the port this app has always used
+    expose:
+      - "5433"
+    ports:
+      - "5433:5433" # optional: hit Postgres directly (e.g. psql) for debugging
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 5433"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     container_name: redis
     image: redis:7-alpine
@@ -15,15 +35,21 @@ services:
       context: .
       dockerfile: Dockerfile
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       - REDIS_ADDR=redis:6379
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5433
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=wizworkspace
     expose:
       - "8080"
     ports:
       - "8081:8080" # optional: hit the API directly for debugging
-    volumes:
-      - pgdata:/app/pgvolume
 
   ui:
     container_name: ui-server
