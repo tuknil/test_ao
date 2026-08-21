@@ -90,6 +90,10 @@ func main() {
 		log.Fatalf("failed to import models: %v", err)
 	}
 
+	rdb := newRedisClient()
+	defer rdb.Close()
+	pushMappedCountsToRedis(db, rdb)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/wiz-integrations", listWizIntegrations)
 	mux.HandleFunc("POST /api/wiz-integrations", createWizIntegration)

@@ -1,11 +1,23 @@
 name: agentic-overlay
 
 services:
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379" # optional: hit Redis directly (e.g. redis-cli) for debugging
+
   api:
     container_name: ingestion-server
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - REDIS_ADDR=redis:6379
     expose:
       - "8080"
     ports:

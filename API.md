@@ -385,3 +385,21 @@ Notes:
 - Risk buckets: `low` = score `< 50`, `medium` = `50`-`69`, `high` = `>= 70`.
 - `riskTrend` covers the last 14 days, `monitoredTrend`/`disabledTrend` cover the last 30 days — both always return one point per day (zero-filled), even for days with no history events, so charts never have gaps.
 - `highRiskAgents` is the current top 10 agents by `risk_score` (not history-based), ties broken by name.
+
+---
+
+## Redis
+
+Postgres remains the system of record for everything in this app. Redis is a supplementary cache: at startup, after all CSV imports complete, the API server computes three counts from Postgres and pushes them into Redis as plain string values (no TTL).
+
+| Key | Value |
+|---|---|
+| `agentic_overlay:agents_mapped` | `count(*) FROM agents` |
+| `agentic_overlay:models_mapped` | `count(*) FROM models` |
+| `agentic_overlay:policies_mapped` | `count(*) FROM policies` |
+
+```bash
+docker exec redis redis-cli GET agentic_overlay:agents_mapped
+```
+
+Connection is configured via `REDIS_ADDR` (docker-compose sets this to `redis:6379`; defaults to `localhost:6379` otherwise). The push is best-effort — if Redis is unreachable at startup, the server logs the failure and continues serving normally; it does not fail startup or affect any HTTP endpoint.
