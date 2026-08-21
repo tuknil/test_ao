@@ -83,6 +83,12 @@ func main() {
 	if err := importPoliciesFromCSV(db, "./data/policies.csv"); err != nil {
 		log.Fatalf("failed to import policies: %v", err)
 	}
+	if err := migrateModels(db); err != nil {
+		log.Fatalf("failed to migrate models: %v", err)
+	}
+	if err := importModelsFromCSV(db, "./data/models.csv"); err != nil {
+		log.Fatalf("failed to import models: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/wiz-integrations", listWizIntegrations)
@@ -100,6 +106,7 @@ func main() {
 	mux.HandleFunc("POST /api/admin/reseed-risk-scores", reseedAgentRiskScoresHandler)
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
+	mux.HandleFunc("GET /api/models", listModels)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
 	mux.HandleFunc("GET /api/dashboard/reporting", getDashboardReporting)
 	mux.Handle("/", noCacheStatic(http.FileServer(http.Dir("./web"))))
