@@ -43,10 +43,23 @@ func newDevRedisClient() *redis.Client {
 
 // newProdRedisClient connects to Azure Managed Redis using an Entra ID token
 // fetched via Managed Identity, matching the auth model required by Azure
-// Managed Redis with Entra ID auth (no access keys). Best-effort: if the
-// credential or token fetch fails, this still returns a client (so the
-// caller doesn't have to handle a nil client) but every command against it
-// will fail and be logged by the best-effort callers.
+// Managed Redis with Entra ID auth (no access keys).
+//
+// The token is fetched through CredentialsProviderContext rather than once
+// at startup, so every new or recycled pool connection re-authenticates with
+// a live token instead of one that may have expired long into the process's
+// life. azidentity's credential caches the token internally and only makes a
+// network call when it's actually close to expiry, so calling GetToken on
+// every dial is cheap. ConnMaxLifetime forces connections to be recycled
+// periodically, which is what actually triggers that re-authentication —
+// without it, a connection opened at startup would keep using its original
+// token for as long as the process runs and start failing once Azure expires
+// it server-side.
+//
+// Best-effort at the credential-creation step: if the managed identity
+// credential itself can't be constructed, this still returns a client (so
+// the caller doesn't have to handle a nil client) but every command against
+// it will fail and be logged by the best-effort callers.
 func newProdRedisClient() *redis.Client {
 	addr := fmt.Sprintf("%s:%d", azureRedisHost, azureRedisPort)
 
@@ -56,19 +69,20 @@ func newProdRedisClient() *redis.Client {
 		return redis.NewClient(&redis.Options{Addr: addr})
 	}
 
-	token, err := cred.GetToken(context.Background(), policy.TokenRequestOptions{
-		Scopes: []string{"https://redis.azure.com/.default"},
-	})
-	if err != nil {
-		log.Printf("redis: failed to fetch azure ad token: %v", err)
-		return redis.NewClient(&redis.Options{Addr: addr})
-	}
-
 	return redis.NewClient(&redis.Options{
-		Addr:      addr,
-		Username:  azureRedisUsername,
-		Password:  token.Token,
-		TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		Addr: addr,
+		CredentialsProviderContext: func(ctx context.Context) (string, string, error) {
+			token, err := cred.GetToken(ctx, policy.TokenRequestOptions{
+				Scopes: []string{"https://redis.azure.com/.default"},
+			})
+			if err != nil {
+				return "", "", fmt.Errorf("redis: fetch azure ad token: %w", err)
+			}
+			return azureRedisUsername, token.Token, nil
+		},
+		ConnMaxLifetime:       30 * time.Minute,
+		ConnMaxLifetimeJitter: 5 * time.Minute,
+		TLSConfig:             &tls.Config{MinVersion: tls.VersionTLS12},
 	})
 }
 
