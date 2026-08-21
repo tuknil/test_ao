@@ -1,6 +1,6 @@
 # API server (Go, talks to the "postgres" service over the network — see
 # docker-compose.yml. No embedded/subprocess database here.)
-FROM golang:1.24-bookworm AS build
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
