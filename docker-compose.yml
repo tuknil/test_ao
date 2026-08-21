@@ -3,7 +3,7 @@ name: agentic-overlay
 services:
   postgres:
     container_name: postgres
-    image: postgres:16-alpine
+    image: artifact.it.att.com/astra-secure-container-catalog/postgresql:17.10-r1@sha256:c2ceffcba898b179fccfb526396f301a965fbd895d2b28e5484ed62789fac042
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -23,7 +23,7 @@ services:
 
   redis:
     container_name: redis
-    image: redis:7-alpine
+    image: artifact.it.att.com/astra-secure-container-catalog/redis:latest
     expose:
       - "6379"
     ports:
@@ -51,9 +51,9 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=wizworkspace
     expose:
-      - "8080"
+      - "8138"
     ports:
-      - "8081:8080" # optional: hit the API directly for debugging
+      - "8138:8138" # optional: hit the API directly for debugging
 
   ui:
     container_name: ui-server
