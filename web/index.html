@@ -30,7 +30,7 @@
           <span class="section-label">AI Assets Discovery</span>
         </button>
         <ul class="section-list" id="ai-assets">
-          <li><a href="#">Models</a></li>
+          <li><a href="#" id="modelsLink">Models</a></li>
           <li><a href="#">MCP Servers</a></li>
           <li><a href="#">Tools</a></li>
           <li><a href="#" id="agentsLink">Agents</a></li>
@@ -151,6 +151,39 @@
           <div id="disabledTrendChart"></div>
         </div>
       </section>
+    </div>
+
+    <div class="view" id="modelsView" hidden>
+      <h1>AI Models</h1>
+      <p id="modelsSummary">Loading models...</p>
+
+      <input type="text" class="search-input" id="modelsSearch" placeholder="Search by name, technology, cloud platform, status or region...">
+
+      <div class="table-scroll">
+        <table class="integrations-table" id="modelsTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>ID</th>
+              <th>External ID</th>
+              <th>Type</th>
+              <th>Technology</th>
+              <th>Cloud</th>
+              <th>Status</th>
+              <th>Region</th>
+              <th>Projects</th>
+              <th>First seen</th>
+            </tr>
+          </thead>
+          <tbody id="modelsTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="pagination" id="modelsPagination">
+        <button type="button" class="btn-secondary" id="modelsPrevBtn">Previous</button>
+        <span id="modelsPageInfo"></span>
+        <button type="button" class="btn-secondary" id="modelsNextBtn">Next</button>
+      </div>
     </div>
 
     <div class="view" id="agentsView" hidden>
@@ -326,6 +359,6 @@
   </div>
 </div>
 
-<script src="script.js?v=17"></script>
+<script src="script.js?v=18"></script>
 </body>
 </html>

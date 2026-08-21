@@ -241,6 +241,22 @@ Every `monitor`, `kill-switch-action`, and `risk-score` update appends a **state
 
 All three: newest first (`changed_at DESC`), optional `limit` query param (default `100`, max `500`). Unknown `{id}` returns `{"items": []}`, not `404` — history is inherently empty for an agent with no recorded changes.
 
+### `POST /api/admin/reseed-risk-scores`
+
+Resets **every** agent's `riskScore` using the same distribution as the initial CSV import (~90% `0`, ~8% `50`-`60`, ~2% `70`-`80`), and rebuilds `agent_risk_score_history` from scratch to match — one history row per agent, exactly matching its new score. Only touches risk scores; monitor, kill-switch, and integrations data are untouched.
+
+Exists because the CSV import originally seeded `agents.risk_score` directly without writing a corresponding history row, which left the Dashboard's risk-scoring stats and trend chart (both driven by history, not the live column) reading `0` even when agents clearly had non-zero scores. The import now writes history at seed time too, so this is normally a one-off corrective action rather than something you need regularly.
+
+```bash
+curl -X POST http://localhost:8080/api/admin/reseed-risk-scores
+```
+
+**Response `200`:**
+
+```json
+{ "agentsReseeded": 6772 }
+```
+
 ---
 
 ## Policies
@@ -369,3 +385,21 @@ Notes:
 - Risk buckets: `low` = score `< 50`, `medium` = `50`-`69`, `high` = `>= 70`.
 - `riskTrend` covers the last 14 days, `monitoredTrend`/`disabledTrend` cover the last 30 days — both always return one point per day (zero-filled), even for days with no history events, so charts never have gaps.
 - `highRiskAgents` is the current top 10 agents by `risk_score` (not history-based), ties broken by name.
+
+---
+
+## Redis
+
+Postgres remains the system of record for everything in this app. Redis is a supplementary cache: at startup, after all CSV imports complete, the API server computes three counts from Postgres and pushes them into Redis as plain string values (no TTL).
+
+| Key | Value |
+|---|---|
+| `agentic_overlay:agents_mapped` | `count(*) FROM agents` |
+| `agentic_overlay:models_mapped` | `count(*) FROM models` |
+| `agentic_overlay:policies_mapped` | `count(*) FROM policies` |
+
+```bash
+docker exec redis redis-cli GET agentic_overlay:agents_mapped
+```
+
+Connection is configured via `REDIS_ADDR` (docker-compose sets this to `redis:6379`; defaults to `localhost:6379` otherwise). The push is best-effort — if Redis is unreachable at startup, the server logs the failure and continues serving normally; it does not fail startup or affect any HTTP endpoint.

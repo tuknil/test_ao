@@ -124,20 +124,15 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 	}
 	defer stmt.Close()
 
-	// Deterministic seed so re-imports (fresh DBs) get the same distribution:
-	// ~90% score 0, ~8% score 50-60, ~2% score 70-80.
-	rng := rand.New(rand.NewSource(42))
-	seedRiskScore := func() int {
-		roll := rng.Float64()
-		switch {
-		case roll < 0.02:
-			return 70 + rng.Intn(11)
-		case roll < 0.10:
-			return 50 + rng.Intn(11)
-		default:
-			return 0
-		}
+	historyStmt, err := tx.Prepare(`INSERT INTO agent_risk_score_history (agent_id, risk_score) VALUES ($1, $2)`)
+	if err != nil {
+		tx.Rollback()
+		return err
 	}
+	defer historyStmt.Close()
+
+	// Deterministic seed so re-imports (fresh DBs) get the same distribution.
+	rng := rand.New(rand.NewSource(42))
 
 	get := func(row []string, key string) string {
 		if i, ok := col[key]; ok && i < len(row) {
@@ -162,6 +157,7 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			continue
 		}
 
+		riskScore := seedRiskScoreValue(rng)
 		_, err = stmt.Exec(
 			id,
 			get(row, "externalId"),
@@ -177,9 +173,13 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			get(row, "firstSeen"),
 			get(row, "createdAt"),
 			get(row, "updatedAt"),
-			seedRiskScore(),
+			riskScore,
 		)
 		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		if _, err := historyStmt.Exec(id, riskScore); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -191,6 +191,85 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 	}
 	log.Printf("imported %d agents from %s", imported, path)
 	return nil
+}
+
+// seedRiskScoreValue picks a risk score for a freshly-seeded or reseeded
+// agent: ~90% score 0, ~8% score 50-60, ~2% score 70-80.
+func seedRiskScoreValue(rng *rand.Rand) int {
+	roll := rng.Float64()
+	switch {
+	case roll < 0.02:
+		return 70 + rng.Intn(11)
+	case roll < 0.10:
+		return 50 + rng.Intn(11)
+	default:
+		return 0
+	}
+}
+
+// reseedAgentRiskScores resets every agent's risk_score using the same
+// distribution as the initial import, and rebuilds agent_risk_score_history
+// from scratch to match — so the two never drift, and the Dashboard's
+// risk-scoring stats/trend (which read history, not the live column) are
+// consistent with what the Agents list shows immediately afterward.
+func reseedAgentRiskScores(db *sql.DB) (int, error) {
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT id FROM agents ORDER BY id`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	updateStmt, err := tx.Prepare(`UPDATE agents SET risk_score = $1 WHERE id = $2`)
+	if err != nil {
+		return 0, err
+	}
+	defer updateStmt.Close()
+
+	rng := rand.New(rand.NewSource(42))
+	for _, id := range ids {
+		if _, err := updateStmt.Exec(seedRiskScoreValue(rng), id); err != nil {
+			return 0, err
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM agent_risk_score_history`); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO agent_risk_score_history (agent_id, risk_score) SELECT id, risk_score FROM agents`); err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+func reseedAgentRiskScoresHandler(w http.ResponseWriter, r *http.Request) {
+	n, err := reseedAgentRiskScores(db)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"agentsReseeded": n})
 }
 
 // formatProjects turns the CSV's JSON array of {id, name} objects into a

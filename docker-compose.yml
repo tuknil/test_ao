@@ -1,17 +1,59 @@
 name: agentic-overlay
 
 services:
+  postgres:
+    container_name: postgres
+    image: artifact.it.att.com/astra-secure-container-catalog/postgresql:17.10-r1@sha256:c2ceffcba898b179fccfb526396f301a965fbd895d2b28e5484ed62789fac042
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=wizworkspace
+    command: ["-p", "5433"] # keep the port this app has always used
+    expose:
+      - "5433"
+    ports:
+      - "5433:5433" # optional: hit Postgres directly (e.g. psql) for debugging
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -p 5433"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    container_name: redis
+    image: artifact.it.att.com/astra-secure-container-catalog/redis:latest
+    expose:
+      - "6379"
+    ports:
+      - "6379:6379" # optional: hit Redis directly (e.g. redis-cli) for debugging
+
   api:
     container_name: ingestion-server
     build:
       context: .
       dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - REDIS_ENV=DEV
+      - REDIS_ADDR=redis:6379 # used when REDIS_ENV=DEV
+      - AZURE_REDIS_HOST=36665-eastus2-nprd-ao-redis.eastus2.redis.azure.net # used when REDIS_ENV=PROD
+      - AZURE_REDIS_PORT=10000
+      - AZURE_REDIS_USERNAME=c55d605a-491e-4505-86f4-3f73ec401a9e
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5433
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=wizworkspace
     expose:
-      - "8080"
+      - "8138"
     ports:
-      - "8081:8080" # optional: hit the API directly for debugging
-    volumes:
-      - pgdata:/app/pgvolume
+      - "8138:8138" # optional: hit the API directly for debugging
 
   ui:
     container_name: ui-server

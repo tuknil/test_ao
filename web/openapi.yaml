@@ -24,6 +24,8 @@ tags:
     description: Read-only inventory imported from data/policies.csv, plus a toggleable enabled field
   - name: Dashboard
     description: Live counts and the Milestone 1 Reporting view
+  - name: Admin
+    description: One-off maintenance operations
 
 paths:
   /api/wiz-integrations:
@@ -307,6 +309,27 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/RiskScoreHistoryEntry"
+
+  /api/admin/reseed-risk-scores:
+    post:
+      tags: [Admin]
+      summary: Reset and reseed all agent risk scores
+      description: |
+        Resets every agent's riskScore using the same distribution as the
+        initial CSV import (~90% 0, ~8% 50-60, ~2% 70-80), and rebuilds
+        agent_risk_score_history from scratch to match — one row per agent,
+        exactly matching its new score. Only touches risk scores; monitor,
+        kill-switch, and integrations data are untouched.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agentsReseeded:
+                    type: integer
 
   /api/policies:
     get:

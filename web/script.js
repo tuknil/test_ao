@@ -27,6 +27,7 @@ document.querySelectorAll('.section-header').forEach((header) => {
 const views = {
   default: document.getElementById('defaultView'),
   integrations: document.getElementById('integrationsView'),
+  models: document.getElementById('modelsView'),
   agents: document.getElementById('agentsView'),
   policies: document.getElementById('policiesView'),
   policySinks: document.getElementById('policySinksView'),
@@ -44,6 +45,13 @@ const integrationsAiAssetsLink = document.getElementById('integrationsAiAssetsLi
 integrationsAiAssetsLink.addEventListener('click', (e) => {
   e.preventDefault();
   showView('integrations');
+});
+
+const modelsLink = document.getElementById('modelsLink');
+modelsLink.addEventListener('click', (e) => {
+  e.preventDefault();
+  showView('models');
+  loadModels();
 });
 
 const agentsLink = document.getElementById('agentsLink');
@@ -256,6 +264,97 @@ async function handleDeleteWiz(wi) {
 }
 
 loadWizIntegrations();
+
+// AI Models (imported dataset, browsed via a searchable/paginated table)
+const MODELS_API = '/api/models';
+const MODELS_PAGE_SIZE = 50;
+
+const modelsSummary = document.getElementById('modelsSummary');
+const modelsSearchInput = document.getElementById('modelsSearch');
+const modelsTableBody = document.getElementById('modelsTableBody');
+const modelsPrevBtn = document.getElementById('modelsPrevBtn');
+const modelsNextBtn = document.getElementById('modelsNextBtn');
+const modelsPageInfo = document.getElementById('modelsPageInfo');
+
+let modelsOffset = 0;
+let modelsSearchTerm = '';
+let modelsSearchDebounce = null;
+
+async function loadModels() {
+  modelsSummary.textContent = 'Loading models...';
+
+  const params = new URLSearchParams({
+    limit: String(MODELS_PAGE_SIZE),
+    offset: String(modelsOffset),
+  });
+  if (modelsSearchTerm) params.set('search', modelsSearchTerm);
+
+  try {
+    const res = await fetch(`${MODELS_API}?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to load models');
+    const data = await res.json();
+    renderModelsTable(data);
+  } catch (err) {
+    console.error(err);
+    modelsSummary.textContent = 'Unable to load models.';
+    modelsTableBody.innerHTML = '';
+  }
+}
+
+function renderModelsTable(data) {
+  const { items, total, limit, offset } = data;
+
+  modelsTableBody.innerHTML = '';
+  items.forEach((model) => {
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>${escapeHtml(model.name)}</td>
+      <td class="cell-muted">${escapeHtml(model.id)}</td>
+      <td class="cell-muted cell-truncate" title="${escapeHtml(model.externalId)}">${escapeHtml(model.externalId)}</td>
+      <td>${escapeHtml(model.nativeType || model.type)}</td>
+      <td>${escapeHtml(model.technologyName)}</td>
+      <td>${escapeHtml(model.cloudPlatform)}</td>
+      <td>${escapeHtml(model.status)}</td>
+      <td>${escapeHtml(model.region)}</td>
+      <td>${escapeHtml(model.projects)}</td>
+      <td class="cell-muted">${escapeHtml(formatDate(model.firstSeen))}</td>
+    `;
+    modelsTableBody.appendChild(row);
+  });
+
+  if (total === 0) {
+    modelsSummary.textContent = modelsSearchTerm
+      ? `No models match "${modelsSearchTerm}".`
+      : 'No models found.';
+  } else {
+    modelsSummary.textContent = `${total.toLocaleString()} AI model${total === 1 ? '' : 's'} found.`;
+  }
+
+  const start = total === 0 ? 0 : offset + 1;
+  const end = Math.min(offset + limit, total);
+  modelsPageInfo.textContent = total === 0 ? '' : `${start}-${end} of ${total.toLocaleString()}`;
+  modelsPrevBtn.disabled = offset <= 0;
+  modelsNextBtn.disabled = end >= total;
+}
+
+modelsSearchInput.addEventListener('input', () => {
+  clearTimeout(modelsSearchDebounce);
+  modelsSearchDebounce = setTimeout(() => {
+    modelsSearchTerm = modelsSearchInput.value.trim();
+    modelsOffset = 0;
+    loadModels();
+  }, 300);
+});
+
+modelsPrevBtn.addEventListener('click', () => {
+  modelsOffset = Math.max(0, modelsOffset - MODELS_PAGE_SIZE);
+  loadModels();
+});
+
+modelsNextBtn.addEventListener('click', () => {
+  modelsOffset += MODELS_PAGE_SIZE;
+  loadModels();
+});
 
 // AI Agents (imported dataset, browsed via a searchable/paginated table)
 const AGENTS_API = '/api/agents';

@@ -1,12 +1,19 @@
 # API server (Go + embedded Postgres)
-FROM golang:1.23-bookworm AS build
+FROM artifact.it.att.com/astra-secure-container-catalog/go:1.26.5 AS build
+ENV GOPROXY=https://nm2553@att.com:***REMOVED-CREDENTIAL***@artifact.it.att.com/artifactory/api/go/att-go-public-group
+ENV GONOSUMDB=off
+ENV GOPRIVATE=it.att.com
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/ingestion-server .
 
-FROM debian:bookworm-slim
+# in its own container, so there is no non-root requirement here.
+FROM  artifact.it.att.com/docker-hub/debian:bookworm-slim
+ENV GOPROXY=https://nm2553@att.com:***REMOVED-CREDENTIAL***@artifact.it.att.com/artifactory/api/go/att-go-public-group
+ENV GONOSUMDB=off
+ENV GOPRIVATE=it.att.com
 # embedded-postgres downloads real PostgreSQL binaries over HTTPS on first
 # start and runs them directly, so this needs glibc (not Alpine/musl) plus
 # CA certs for the download.
@@ -18,6 +25,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /out/ingestion-server ./ingestion-server
 COPY data/ ./data/
+COPY web/ ./web/
 RUN mkdir -p /app/pgvolume && chown -R app:app /app
 USER app
 
