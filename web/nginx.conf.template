@@ -5,8 +5,12 @@ server {
     index index.html;
 
     location /api/ {
-        proxy_pass http://${API_HOST}:${API_PORT};
-        proxy_set_header Host $host;
+        # API_ENDPOINT is a full base URL (scheme://host[:port], no trailing
+        # path) so it can point at a plain host:port for docker-compose or an
+        # HTTPS FQDN for a hosted target like Azure Container Apps.
+        proxy_pass ${API_ENDPOINT};
+        proxy_ssl_server_name on;
+        proxy_set_header Host $proxy_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }

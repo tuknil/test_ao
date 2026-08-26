@@ -64,8 +64,11 @@ services:
     depends_on:
       - api
     environment:
-      - API_HOST=api # nginx's proxy_pass target; must match the api service's container_name/service name
-      - API_PORT=8080 # must match the api service's API_PORT above
+      # nginx's proxy_pass target. For docker-compose this is the api
+      # service's internal address; if the API is hosted elsewhere (e.g.
+      # Azure Container Apps) point this at its FQDN instead, e.g.
+      # https://ingestion-server.<env>.azurecontainerapps.io
+      - API_ENDPOINT=http://api:8080
     ports:
       - "8080:80"
 
