@@ -66,18 +66,21 @@ func main() {
 	if err := importAgentsFromCSV(db, "./data/agents.csv"); err != nil {
 		log.Fatalf("failed to import agents: %v", err)
 	}
+	syncAllAgentsToRedis(db)
 	if err := migratePolicies(db); err != nil {
 		log.Fatalf("failed to migrate policies: %v", err)
 	}
 	if err := importPoliciesFromCSV(db, "./data/policies.csv"); err != nil {
 		log.Fatalf("failed to import policies: %v", err)
 	}
+	syncAllPoliciesToRedis(db)
 	if err := migrateModels(db); err != nil {
 		log.Fatalf("failed to migrate models: %v", err)
 	}
 	if err := importModelsFromCSV(db, "./data/models.csv"); err != nil {
 		log.Fatalf("failed to import models: %v", err)
 	}
+	syncAllModelsToRedis(db)
 
 	pushMappedCountsToRedis()
 

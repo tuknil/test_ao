@@ -138,14 +138,15 @@ func importPoliciesFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d policies from %s", imported, path)
-	syncAllPoliciesToRedis(db)
 	return nil
 }
 
 // syncAllPoliciesToRedis mirrors every policy row into Redis (one JSON key
 // per policy, including its generated Rego snippet), pipelined into a single
-// round trip. Best-effort: Postgres remains the system of record and every
-// API read goes through it, not Redis.
+// round trip. Called on every server start (whether or not this boot
+// actually imported the CSV), so a Redis that lost its data across restarts
+// still gets fully repopulated from Postgres. Best-effort: Postgres remains
+// the system of record and every API read goes through it, not Redis.
 func syncAllPoliciesToRedis(db *sql.DB) {
 	rows, err := db.Query(`SELECT id, policy_id, name, policy_type, update_type, severity, cloud_platform, released_at, apply_date, enabled FROM policies`)
 	if err != nil {

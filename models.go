@@ -147,13 +147,15 @@ func importModelsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d models from %s", imported, path)
-	syncAllModelsToRedis(db)
 	return nil
 }
 
 // syncAllModelsToRedis mirrors every model row into Redis (one JSON key per
-// model), pipelined into a single round trip. Best-effort: Postgres remains
-// the system of record and every API read goes through it, not Redis.
+// model), pipelined into a single round trip. Called on every server start
+// (whether or not this boot actually imported the CSV), so a Redis that
+// lost its data across restarts still gets fully repopulated from Postgres.
+// Best-effort: Postgres remains the system of record and every API read
+// goes through it, not Redis.
 func syncAllModelsToRedis(db *sql.DB) {
 	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at FROM models`)
 	if err != nil {

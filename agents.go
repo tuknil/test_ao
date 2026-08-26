@@ -192,13 +192,15 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d agents from %s", imported, path)
-	syncAllAgentsToRedis(db)
 	return nil
 }
 
 // syncAllAgentsToRedis mirrors every agent row into Redis (one JSON key per
-// agent), pipelined into a single round trip. Best-effort: Postgres remains
-// the system of record and every API read goes through it, not Redis.
+// agent), pipelined into a single round trip. Called on every server start
+// (whether or not this boot actually imported the CSV), so a Redis that
+// lost its data across restarts still gets fully repopulated from Postgres.
+// Best-effort: Postgres remains the system of record and every API read
+// goes through it, not Redis.
 func syncAllAgentsToRedis(db *sql.DB) {
 	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score FROM agents`)
 	if err != nil {
