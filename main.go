@@ -101,7 +101,7 @@ func main() {
 	mux.HandleFunc("GET /api/dashboard/reporting", getDashboardReporting)
 	mux.Handle("/", noCacheStatic(http.FileServer(http.Dir("./web"))))
 
-	addr := ":8080"
+	addr := ":" + envOrDefault("API_PORT", "8080")
 	log.Printf("listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("server error: %v", err)

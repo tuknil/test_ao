@@ -40,6 +40,7 @@ services:
       redis:
         condition: service_started
     environment:
+      - API_PORT=8080 # keep in sync with the ui service's API_PORT below and the "expose"/"ports" entries
       - REDIS_ENV=DEV
       - REDIS_ADDR=redis:6379 # used when REDIS_ENV=DEV
       - AZURE_REDIS_HOST=36665-eastus2-nprd-ao-redis.eastus2.redis.azure.net # used when REDIS_ENV=PROD
@@ -62,6 +63,9 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - api
+    environment:
+      - API_HOST=api # nginx's proxy_pass target; must match the api service's container_name/service name
+      - API_PORT=8080 # must match the api service's API_PORT above
     ports:
       - "8080:80"
 
