@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/md5"
 	"database/sql"
 	"encoding/csv"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Agent struct {
@@ -190,7 +192,44 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d agents from %s", imported, path)
+	syncAllAgentsToRedis(db)
 	return nil
+}
+
+// syncAllAgentsToRedis mirrors every agent row into Redis (one JSON key per
+// agent), pipelined into a single round trip. Best-effort: Postgres remains
+// the system of record and every API read goes through it, not Redis.
+func syncAllAgentsToRedis(db *sql.DB) {
+	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score FROM agents`)
+	if err != nil {
+		log.Printf("redis: failed to read agents for sync: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	pipe := rdb.Pipeline()
+	n := 0
+	for rows.Next() {
+		var a Agent
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore); err != nil {
+			log.Printf("redis: failed to scan agent for sync: %v", err)
+			continue
+		}
+		a.AgenticOverlayID = md5Hex(a.ID)
+		pipelineSetJSON(pipe, agentRedisKey(a.ID), a)
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("redis: failed to read agents for sync: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("redis: failed to sync agents: %v", err)
+		return
+	}
+	log.Printf("redis: synced %d agents", n)
 }
 
 // seedRiskScoreValue picks a risk score for a freshly-seeded or reseeded
@@ -269,6 +308,8 @@ func reseedAgentRiskScoresHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	syncAllAgentsToRedis(db)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, map[string]interface{}{"agentsReseeded": n})
 }
 
@@ -352,6 +393,23 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// updateAgentReturning runs an UPDATE against agents (the caller supplies the
+// SET/WHERE clause and its args) and returns the full updated row, so
+// mutating handlers can mirror the current agent state into Redis without a
+// separate SELECT round trip.
+func updateAgentReturning(tx *sql.Tx, query string, args ...interface{}) (Agent, error) {
+	var a Agent
+	err := tx.QueryRow(
+		query+` RETURNING id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score`,
+		args...,
+	).Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore)
+	if err != nil {
+		return a, err
+	}
+	a.AgenticOverlayID = md5Hex(a.ID)
+	return a, nil
+}
+
 type agentMonitorPayload struct {
 	Monitor bool `json:"monitor"`
 }
@@ -372,14 +430,13 @@ func updateAgentMonitor(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	a, err := updateAgentReturning(tx, `UPDATE agents SET monitor = $1 WHERE id = $2`, payload.Monitor, id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if _, err := tx.Exec(
@@ -394,6 +451,8 @@ func updateAgentMonitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setInventoryJSON(agentRedisKey(a.ID), a)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "monitor": payload.Monitor})
 }
 
@@ -424,14 +483,13 @@ func updateAgentKillSwitchAction(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`UPDATE agents SET kill_switch_action = $1 WHERE id = $2`, payload.Action, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	a, err := updateAgentReturning(tx, `UPDATE agents SET kill_switch_action = $1 WHERE id = $2`, payload.Action, id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if _, err := tx.Exec(
@@ -446,6 +504,8 @@ func updateAgentKillSwitchAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setInventoryJSON(agentRedisKey(a.ID), a)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "killSwitchAction": payload.Action})
 }
 
@@ -475,14 +535,13 @@ func updateAgentRiskScore(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`UPDATE agents SET risk_score = $1 WHERE id = $2`, payload.RiskScore, id)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	a, err := updateAgentReturning(tx, `UPDATE agents SET risk_score = $1 WHERE id = $2`, payload.RiskScore, id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "not found")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if _, err := tx.Exec(
@@ -497,5 +556,7 @@ func updateAgentRiskScore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setInventoryJSON(agentRedisKey(a.ID), a)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "riskScore": payload.RiskScore})
 }

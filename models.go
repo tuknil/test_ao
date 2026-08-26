@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Model struct {
@@ -145,7 +147,43 @@ func importModelsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d models from %s", imported, path)
+	syncAllModelsToRedis(db)
 	return nil
+}
+
+// syncAllModelsToRedis mirrors every model row into Redis (one JSON key per
+// model), pipelined into a single round trip. Best-effort: Postgres remains
+// the system of record and every API read goes through it, not Redis.
+func syncAllModelsToRedis(db *sql.DB) {
+	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at FROM models`)
+	if err != nil {
+		log.Printf("redis: failed to read models for sync: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	pipe := rdb.Pipeline()
+	n := 0
+	for rows.Next() {
+		var m Model
+		if err := rows.Scan(&m.ID, &m.ExternalID, &m.Name, &m.Type, &m.NativeType, &m.TechnologyName, &m.CloudPlatform, &m.CloudProvider, &m.Status, &m.Region, &m.Projects, &m.FirstSeen, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			log.Printf("redis: failed to scan model for sync: %v", err)
+			continue
+		}
+		pipelineSetJSON(pipe, modelRedisKey(m.ID), m)
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("redis: failed to read models for sync: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("redis: failed to sync models: %v", err)
+		return
+	}
+	log.Printf("redis: synced %d models", n)
 }
 
 func listModels(w http.ResponseWriter, r *http.Request) {

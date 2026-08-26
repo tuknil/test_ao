@@ -51,6 +51,9 @@ func main() {
 	}
 	log.Println("connected to postgres")
 
+	rdb = newRedisClient()
+	defer rdb.Close()
+
 	if err := migrate(db); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -76,9 +79,7 @@ func main() {
 		log.Fatalf("failed to import models: %v", err)
 	}
 
-	rdb := newRedisClient()
-	defer rdb.Close()
-	pushMappedCountsToRedis(db, rdb)
+	pushMappedCountsToRedis()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/wiz-integrations", listWizIntegrations)
@@ -255,6 +256,8 @@ func createWizIntegration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	mirrorWizIntegrationToRedis(wi)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusCreated, wi)
 }
 
@@ -301,7 +304,18 @@ func updateWizIntegration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	mirrorWizIntegrationToRedis(wi)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, wi)
+}
+
+// mirrorWizIntegrationToRedis mirrors a wiz integration into Redis, with the
+// client secret stripped — Redis is a supplementary read cache elsewhere in
+// this app, and there's no reason to fan a live credential out into a second
+// store just to mirror inventory data.
+func mirrorWizIntegrationToRedis(wi WizIntegration) {
+	wi.ClientSecret = ""
+	setInventoryJSON(wizIntegrationRedisKey(wi.ID), wi)
 }
 
 func deleteWizIntegration(w http.ResponseWriter, r *http.Request) {
@@ -320,5 +334,6 @@ func deleteWizIntegration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	pushMappedCountsToRedis()
 	w.WriteHeader(http.StatusNoContent)
 }

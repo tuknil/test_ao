@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Policy struct {
@@ -136,7 +138,45 @@ func importPoliciesFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	log.Printf("imported %d policies from %s", imported, path)
+	syncAllPoliciesToRedis(db)
 	return nil
+}
+
+// syncAllPoliciesToRedis mirrors every policy row into Redis (one JSON key
+// per policy, including its generated Rego snippet), pipelined into a single
+// round trip. Best-effort: Postgres remains the system of record and every
+// API read goes through it, not Redis.
+func syncAllPoliciesToRedis(db *sql.DB) {
+	rows, err := db.Query(`SELECT id, policy_id, name, policy_type, update_type, severity, cloud_platform, released_at, apply_date, enabled FROM policies`)
+	if err != nil {
+		log.Printf("redis: failed to read policies for sync: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	pipe := rdb.Pipeline()
+	n := 0
+	for rows.Next() {
+		var p Policy
+		if err := rows.Scan(&p.ID, &p.PolicyID, &p.Name, &p.PolicyType, &p.UpdateType, &p.Severity, &p.CloudPlatform, &p.ReleasedAt, &p.ApplyDate, &p.Enabled); err != nil {
+			log.Printf("redis: failed to scan policy for sync: %v", err)
+			continue
+		}
+		p.RegoPolicy = generateRegoPolicy(p)
+		pipelineSetJSON(pipe, policyRedisKey(p.ID), p)
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("redis: failed to read policies for sync: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := pipe.Exec(ctx); err != nil {
+		log.Printf("redis: failed to sync policies: %v", err)
+		return
+	}
+	log.Printf("redis: synced %d policies", n)
 }
 
 var regoPackageSanitizer = regexp.MustCompile(`[^a-z0-9_]+`)
@@ -294,15 +334,23 @@ func updatePolicyEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := db.Exec(`UPDATE policies SET enabled = $1 WHERE id = $2`, payload.Enabled, id)
+	var p Policy
+	err := db.QueryRow(
+		`UPDATE policies SET enabled = $1 WHERE id = $2
+		 RETURNING id, policy_id, name, policy_type, update_type, severity, cloud_platform, released_at, apply_date, enabled`,
+		payload.Enabled, id,
+	).Scan(&p.ID, &p.PolicyID, &p.Name, &p.PolicyType, &p.UpdateType, &p.Severity, &p.CloudPlatform, &p.ReleasedAt, &p.ApplyDate, &p.Enabled)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
+
+	p.RegoPolicy = generateRegoPolicy(p)
+	setInventoryJSON(policyRedisKey(p.ID), p)
+	pushMappedCountsToRedis()
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": id, "enabled": payload.Enabled})
 }

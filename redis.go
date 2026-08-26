@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -15,11 +15,24 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// rdb is the process-wide Redis client, set once in main(). Redis here is a
+// write-only mirror of Postgres inventory data: every API endpoint reads
+// from Postgres only, so a stale or unreachable rdb never affects responses.
+var rdb *redis.Client
+
 const (
-	redisKeyAgentsMapped   = "agentic_overlay:agents_mapped"
-	redisKeyModelsMapped   = "agentic_overlay:models_mapped"
-	redisKeyPoliciesMapped = "agentic_overlay:policies_mapped"
+	redisKeyAgentsMapped          = "agentic_overlay:agents_mapped"
+	redisKeyModelsMapped          = "agentic_overlay:models_mapped"
+	redisKeyPoliciesMapped        = "agentic_overlay:policies_mapped"
+	redisKeyWizIntegrationsMapped = "agentic_overlay:wiz_integrations_mapped"
 )
+
+func agentRedisKey(id string) string  { return "agentic_overlay:agent:" + id }
+func modelRedisKey(id string) string  { return "agentic_overlay:model:" + id }
+func policyRedisKey(id string) string { return "agentic_overlay:policy:" + id }
+func wizIntegrationRedisKey(id int64) string {
+	return fmt.Sprintf("agentic_overlay:wiz_integration:%d", id)
+}
 
 // newRedisClient picks a client based on REDIS_ENV: "PROD" connects to Azure
 // Managed Redis using a Managed Identity token, anything else (including
@@ -90,18 +103,20 @@ func newProdRedisClient() *redis.Client {
 	})
 }
 
-// pushMappedCountsToRedis computes the current agents/models/policies counts
-// from Postgres and writes them into Redis. Best-effort: Redis is a
-// supplementary cache here, not the system of record, so a failure here logs
-// and returns rather than taking down the whole app.
-func pushMappedCountsToRedis(db *sql.DB, rdb *redis.Client) {
+// pushMappedCountsToRedis computes the current agents/models/policies/
+// wiz-integrations counts from Postgres and writes them into Redis.
+// Best-effort: Redis is a supplementary mirror here, not the system of
+// record, so a failure here logs and returns rather than taking down the
+// whole app.
+func pushMappedCountsToRedis() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	counts := map[string]string{
-		redisKeyAgentsMapped:   "SELECT count(*) FROM agents",
-		redisKeyModelsMapped:   "SELECT count(*) FROM models",
-		redisKeyPoliciesMapped: "SELECT count(*) FROM policies",
+		redisKeyAgentsMapped:          "SELECT count(*) FROM agents",
+		redisKeyModelsMapped:          "SELECT count(*) FROM models",
+		redisKeyPoliciesMapped:        "SELECT count(*) FROM policies",
+		redisKeyWizIntegrationsMapped: "SELECT count(*) FROM wiz_integrations",
 	}
 
 	for key, query := range counts {
@@ -116,4 +131,32 @@ func pushMappedCountsToRedis(db *sql.DB, rdb *redis.Client) {
 		}
 		log.Printf("redis: %s = %d", key, n)
 	}
+}
+
+// setInventoryJSON mirrors v into Redis under key as JSON. Best-effort, like
+// every other Redis write in this file: Postgres is the system of record and
+// API reads never touch Redis, so a failure here just logs and moves on.
+func setInventoryJSON(key string, v interface{}) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("redis: failed to marshal %s: %v", key, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Set(ctx, key, data, 0).Err(); err != nil {
+		log.Printf("redis: failed to set %s: %v", key, err)
+	}
+}
+
+// pipelineSetJSON queues a JSON SET for key/v onto pipe without executing it;
+// used to batch large mirrors (e.g. a full CSV import) into one round trip
+// instead of one per row.
+func pipelineSetJSON(pipe redis.Pipeliner, key string, v interface{}) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("redis: failed to marshal %s: %v", key, err)
+		return
+	}
+	pipe.Set(context.Background(), key, data, 0)
 }
