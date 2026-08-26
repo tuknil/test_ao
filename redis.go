@@ -149,6 +149,16 @@ func setInventoryJSON(key string, v interface{}) {
 	}
 }
 
+// deleteInventoryKey removes key from Redis. Best-effort, same as every
+// other Redis write in this file.
+func deleteInventoryKey(key string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Del(ctx, key).Err(); err != nil {
+		log.Printf("redis: failed to delete %s: %v", key, err)
+	}
+}
+
 // pipelineSetJSON queues a JSON SET for key/v onto pipe without executing it;
 // used to batch large mirrors (e.g. a full CSV import) into one round trip
 // instead of one per row.

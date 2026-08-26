@@ -334,6 +334,7 @@ func deleteWizIntegration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
+	deleteInventoryKey(wizIntegrationRedisKey(id))
 	pushMappedCountsToRedis()
 	w.WriteHeader(http.StatusNoContent)
 }
