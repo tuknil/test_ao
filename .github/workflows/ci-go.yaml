@@ -1,59 +1,31 @@
-name: CI - Go Build
+name: CI - Backend Build and  Deploy
 
 on:
-  schedule:
-    - cron: '00 02 * * *'
-
   push:
     branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'contracts/**'
+      - '.github/workflows/ci-go.yaml'
 
   pull_request:
     types: [ opened, synchronize, reopened ]
     branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'contracts/**'
+      - '.github/workflows/ci-go.yaml'
 
   workflow_dispatch:
-    ## This workflow can be manually triggered via the GitHub UI.
-    ## The inputs defined below determine the steps to execute.
-    ## The `default` value specifies the initial option displayed in the UI only.
     inputs:
-      enable_sonar:
-        description: 'Enable Sonar'
-        default: true
+      Push_To_JFrog:
+        description: 'Push the Docker image to JFrog'
         required: true
-        type: boolean
-      enable_veracode_sast:
-        description: 'Enable VeraCode SAST'
-        default: true
-        required: true
-        type: boolean
-      enable_veracode_sca:
-        description: 'Enable VeraCode SCA'
-        default: true
-        required: true
-        type: boolean
-      enable_veracode_pipeline_scan:
-        description: 'Enable VeraCode Pipeline Scan'
-        default: true
-        required: false
-        type: boolean
-      enable_unit_tests:
-        description: 'Enable Unit Tests'
-        default: false
-        required: true
-        type: boolean
-      enable_deployment:
-        description: 'Enable Deployment'
-        default: true
-        required: true
-        type: boolean
-      log_level:
-        description: 'Log level'
-        required: true
-        default: 'info'
-        type: choice
-        options:
-          - info
-          - debug
+        default: 'false'
+
+
       enable_stage_deployment:
         description: 'Push Stage Repo'
         default: false
@@ -68,24 +40,31 @@ on:
         type: boolean
 
 jobs:
-  run:
-    name: Run Go CI Workflow
-    secrets: inherit
-    uses: ATT-IDP/revup-workflows/.github/workflows/reusable_workflow_go_ci.yaml@v6
-    with:
-      enable_sonar: ${{ github.event.inputs.enable_sonar }}
-      enable_veracode_sast: ${{ github.event.inputs.enable_veracode_sast }}
-      enable_veracode_sca: ${{ github.event.inputs.enable_veracode_sca }}
-      enable_veracode_pipeline_scan: ${{ github.event.inputs.enable_veracode_pipeline_scan }}
-      enable_unit_tests: ${{ github.event.inputs.enable_unit_tests }}
-      enable_deployment: ${{ github.event.inputs.enable_deployment }}
-      log_level: ${{ github.event.inputs.log_level }}
-      runner_group: 'concordia-linux-cpu2-ram7gi'
+  ui-docker-build-validation:
+    name: Docker Build and Deploy (Backend)
+    if: github.event_name != 'pull_request'
+    runs-on: concordia-linux-cpu2-ram7gi
+    steps:
+    - uses: actions/checkout@v4
+    - name: Docker login to JFrog
+      run: echo "${{ secrets.JFROG_ACCESS_TOKEN }}" | docker login artifact.it.att.com --username "${{ secrets.JFROG_USERNAME }}" --password-stdin
+    - name: Build worker Docker image
+      run: |
+        cd web
+        ls -la 
+        IMAGE_TAG=${{ vars.AO_INGESTION_GATEWAY_UI_IMAGE }}:$(date +%s)
+        docker build . --file Dockerfile --tag $IMAGE_TAG
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    - name: Push worker Docker image
+      if: github.event_name != 'pull_request' && github.event.inputs.Push_To_JFrog == 'true'
+      run: docker push ${{ env.IMAGE_TAG }}
+
   Call_DevOps:
     name: Call DevOps
     permissions:
       contents: read    
-    needs: run
+    needs: ui-docker-build-validation
     if: ${{ inputs.enable_stage_deployment == true }}
     runs-on: concordia-linux-cpu2-ram7gi
     steps:
@@ -124,7 +103,7 @@ jobs:
           echo "Images:"
           echo " control-translation"
           echo ""
-          echo "Target Repository : apm0047236-AO-DevOps"
+          echo "Target Repository : apm0047236-ao-devops"
           echo "Event Type        : feature-build"
           echo "======================================"
 
@@ -135,11 +114,11 @@ jobs:
           script: |
             await github.rest.repos.createDispatchEvent({
               owner: context.repo.owner,
-              repo: 'apm0047236-AO-DevOps',
+              repo: 'apm0047236-ao-devops',
               event_type: 'feature-build',
 
               client_payload: {
-                repository: context.repo.owner + '/ingestion-gateway-agent',
+                repository: context.repo.owner + '/apm0047236-AO-ingestion-gateway-agent',
                 ref: context.ref.replace('refs/heads/', ''),
                 sha: context.sha,
                 triggered_by: context.actor,
@@ -148,15 +127,16 @@ jobs:
 
                 images: [
                   {
-                    name: 'ao-gateway/ao-gw-api',
+                    name: 'ao-gateway/ao-gw-ui',
                     tag: `${{ steps.image-version.outputs.image_version }}`,
-                    aca: `${{ vars.ACA_AO_APP_API }}`,
+                    aca: `${{ vars.ACA_AO_APP_UI }}`,
                     rg: `${{ vars.RESOURCE_GROUP }}`,
                   },
+             
                 ]
               }
             });
 
             console.log('repository_dispatch sent successfully');
             console.log('Target: apm0047236-ao-devops');
-            console.log('Event: feature-build');      
+            console.log('Event: feature-build');

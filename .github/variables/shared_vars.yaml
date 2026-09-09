@@ -65,8 +65,8 @@ go:
 #+--------------------+
 docker:
   repository: 'apm0047236-dkr-group'
-  repository-path: '< repository path >'
-  image-name: '< image name >' # Comment this line when MonoRepo project  
+  repository-path: 'ao-gateway'
+  image-name: 'ao-gw-api' # Comment this line when MonoRepo project  
 
 #+--------------------+
 #|    Helm            |
