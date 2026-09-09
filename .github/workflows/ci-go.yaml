@@ -1,4 +1,4 @@
-name: CI - Backend Build and  Deploy
+name: CI - UI Build and  Deploy
 
 on:
   push:
