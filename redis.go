@@ -133,6 +133,37 @@ func pushMappedCountsToRedis() {
 	}
 }
 
+// flushCSVInventoryFromRedis deletes every Redis key this app maintains for
+// agents/models/policies (both the per-record mirrors and their mapped
+// counts), so a fresh CSV import always starts from a clean slate. Without
+// this, a record no longer present in a newer CSV — or one whose ID scheme
+// changed entirely, as happened when the agents export was replaced —
+// would leave a stale, orphaned key in Redis forever. wiz_integrations
+// mirrors are left untouched: those are user-configured through the API,
+// not CSV-seeded, so they aren't part of this reset.
+func flushCSVInventoryFromRedis() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var keys []string
+	for _, pattern := range []string{"agentic_overlay:agent:*", "agentic_overlay:model:*", "agentic_overlay:policy:*"} {
+		iter := rdb.Scan(ctx, 0, pattern, 200).Iterator()
+		for iter.Next(ctx) {
+			keys = append(keys, iter.Val())
+		}
+		if err := iter.Err(); err != nil {
+			log.Printf("redis: failed to scan %s for flush: %v", pattern, err)
+		}
+	}
+	keys = append(keys, redisKeyAgentsMapped, redisKeyModelsMapped, redisKeyPoliciesMapped)
+
+	if err := rdb.Del(ctx, keys...).Err(); err != nil {
+		log.Printf("redis: failed to flush inventory keys: %v", err)
+		return
+	}
+	log.Printf("redis: flushed %d inventory keys", len(keys))
+}
+
 // setInventoryJSON mirrors v into Redis under key as JSON. Best-effort, like
 // every other Redis write in this file: Postgres is the system of record and
 // API reads never touch Redis, so a failure here just logs and moves on.

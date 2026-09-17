@@ -82,18 +82,12 @@ func migrateAgents(db *sql.DB) error {
 	return err
 }
 
-// importAgentsFromCSV loads the bundled agents CSV export into the agents
-// table the first time the app runs (the table is left untouched on
-// subsequent restarts so manual edits, if any, are preserved).
+// importAgentsFromCSV wipes the agents table (and its FK-dependent history
+// tables) and reloads it from the bundled CSV export every time the server
+// starts, so a fresh CSV always wins over whatever was there before — any
+// manual monitor/kill-switch/risk-score changes made through the API are
+// discarded on every restart, not just the first one.
 func importAgentsFromCSV(db *sql.DB, path string) error {
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM agents`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-
 	f, err := os.Open(path)
 	if err != nil {
 		log.Printf("agents CSV not found at %s, skipping import: %v", path, err)
@@ -115,10 +109,13 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`TRUNCATE agent_monitor_history, agent_kill_switch_history, agent_risk_score_history, agents CASCADE`); err != nil {
+		tx.Rollback()
+		return err
+	}
 	stmt, err := tx.Prepare(`
 		INSERT INTO agents (id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risk_score)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		ON CONFLICT (id) DO NOTHING
 	`)
 	if err != nil {
 		tx.Rollback()

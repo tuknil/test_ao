@@ -53,6 +53,7 @@ func main() {
 
 	rdb = newRedisClient()
 	defer rdb.Close()
+	flushCSVInventoryFromRedis()
 
 	if err := migrate(db); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
