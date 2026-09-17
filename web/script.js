@@ -423,6 +423,22 @@ function renderAgentsTable(data) {
         </label>
       </td>
       <td><span class="${killSwitchBadgeClass(agent.killSwitchAction)}">${escapeHtml(agent.killSwitchAction)}</span></td>
+      <td>${flagBadge(agent.hasAdminPrivileges)}</td>
+      <td>${flagBadge(agent.hasHighPrivileges)}</td>
+      <td>${flagBadge(agent.hasAdminSaaSPrivileges)}</td>
+      <td>${flagBadge(agent.hasHighSaaSPrivileges)}</td>
+      <td>${flagBadge(agent.hasAdminKubernetesPrivileges)}</td>
+      <td>${flagBadge(agent.hasHighKubernetesPrivileges)}</td>
+      <td>${flagBadge(agent.hasAccessToSensitiveData)}</td>
+      <td class="cell-muted">${escapeHtml(agent.iamAccessFromOutsideOrg) || '—'}</td>
+      <td>${flagBadge(agent.openToAllInternet)}</td>
+      <td class="cell-muted">${escapeHtml(agent.maxExposureLevel) || '—'}</td>
+      <td>${flagBadge(agent.accessibleFromInternet)}</td>
+      <td>${flagBadge(agent.accessibleFromVpn)}</td>
+      <td>${flagBadge(agent.accessibleFromOtherSubscriptions)}</td>
+      <td>${flagBadge(agent.accessibleFromOtherVnets)}</td>
+      <td class="cell-muted">${escapeHtml(agent.detectedIacPlatform) || '—'}</td>
+      <td class="cell-muted">${escapeHtml(agent.iacStatus) || '—'}</td>
     `;
     row.querySelector('[data-action="risks"]').addEventListener('click', () => openRiskModal(agent));
     row.querySelector('[data-action="monitor"]').addEventListener('change', (e) => handleMonitorToggle(agent, e.target));
@@ -455,6 +471,11 @@ function killSwitchBadgeClass(action) {
   if (action === 'deactivated') return 'kill-switch-badge is-deactivated';
   if (action === 'reactivated') return 'kill-switch-badge is-reactivated';
   return 'kill-switch-badge';
+}
+
+function flagBadge(value) {
+  const cls = value ? 'flag-badge is-true' : 'flag-badge';
+  return `<span class="${cls}">${value ? 'Yes' : 'No'}</span>`;
 }
 
 function riskScoreBadgeClass(score) {
