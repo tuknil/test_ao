@@ -1,0 +1,142 @@
+name: CI - UI Build and  Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'contracts/**'
+      - '.github/workflows/ci-go.yaml'
+
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+    branches: [ "main" ]
+    paths:
+      - 'backend/**'
+      - 'db/**'
+      - 'contracts/**'
+      - '.github/workflows/ci-go.yaml'
+
+  workflow_dispatch:
+    inputs:
+      Push_To_JFrog:
+        description: 'Push the Docker image to JFrog'
+        required: true
+        default: 'false'
+
+
+      enable_stage_deployment:
+        description: 'Push Stage Repo'
+        default: false
+        required: true
+        type: boolean
+
+
+      enable_Azure_deployment:
+        description: 'Push Azure ACA'
+        default: false
+        required: true
+        type: boolean
+
+jobs:
+  ui-docker-build-validation:
+    name: Docker Build and Deploy (Backend)
+    if: github.event_name != 'pull_request'
+    runs-on: concordia-linux-cpu2-ram7gi
+    steps:
+    - uses: actions/checkout@v4
+    - name: Docker login to JFrog
+      run: echo "${{ secrets.JFROG_ACCESS_TOKEN }}" | docker login artifact.it.att.com --username "${{ secrets.JFROG_USERNAME }}" --password-stdin
+    - name: Build worker Docker image
+      run: |
+        cd web
+        ls -la 
+        IMAGE_TAG=${{ vars.AO_INGESTION_GATEWAY_UI_IMAGE }}:$(date +%s)
+        docker build . --file Dockerfile --tag $IMAGE_TAG
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+    - name: Push worker Docker image
+      if: github.event_name != 'pull_request' && github.event.inputs.Push_To_JFrog == 'true'
+      run: docker push ${{ env.IMAGE_TAG }}
+
+  Call_DevOps:
+    name: Call DevOps
+    permissions:
+      contents: read    
+    needs: ui-docker-build-validation
+    if: ${{ inputs.enable_stage_deployment == true }}
+    runs-on: concordia-linux-cpu2-ram7gi
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CICD_APP_ID }}
+          private-key: ${{ secrets.CICD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Print version from shared variables
+        id: image-version
+        shell: bash
+        run: |
+          vars_file=".github/variables/shared_vars.yaml"
+          version="$(awk -F"'" '/^version:/ { print $2; found=1 } END { if (!found) exit 1 }' "$vars_file")"
+          image_version="${version}${GITHUB_RUN_NUMBER}"
+          echo "image_version=$image_version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+          echo "GITHUB_RUN_NUMBER: $GITHUB_RUN_NUMBER"
+          echo "image_version: $image_version"
+          echo "======================================"
+          echo " Triggering Central CI/CD"
+          echo "======================================"
+          echo "Source Repository : ${{ github.repository }}"
+          echo "Branch            : ${{ github.ref_name }}"
+          echo "Commit SHA        : ${{ github.sha }}"
+          echo "Triggered By      : ${{ github.actor }}"
+          echo "Workflow          : ${{ github.workflow }}"
+          echo "Run ID            : ${{ github.run_id }}"
+          echo ""
+          echo "Images:"
+          echo " control-translation"
+          echo ""
+          echo "Target Repository : apm0047236-ao-devops"
+          echo "Event Type        : feature-build"
+          echo "======================================"
+
+      - name: Trigger apm0047236-ao-devops
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: 'apm0047236-ao-devops',
+              event_type: 'feature-build',
+
+              client_payload: {
+                repository: context.repo.owner + '/apm0047236-AO-ingestion-gateway-agent',
+                ref: context.ref.replace('refs/heads/', ''),
+                sha: context.sha,
+                triggered_by: context.actor,
+                jfrog_group: 'apm0047236-dkr-group',
+                enable_azure_deployment: ${{ inputs.enable_Azure_deployment }},
+
+                images: [
+                  {
+                    name: 'ao-gateway/ao-gw-ui',
+                    tag: `${{ steps.image-version.outputs.image_version }}`,
+                    aca: `${{ vars.ACA_AO_APP_UI }}`,
+                    rg: `${{ vars.RESOURCE_GROUP }}`,
+                  },
+             
+                ]
+              }
+            });
+
+            console.log('repository_dispatch sent successfully');
+            console.log('Target: apm0047236-ao-devops');
+            console.log('Event: feature-build');

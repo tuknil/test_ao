@@ -1,6 +1,6 @@
 module wizworkspace
 
-go 1.25.0
+go 1.25
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
