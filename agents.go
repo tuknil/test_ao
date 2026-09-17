@@ -138,11 +138,18 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 
 	get := func(row []string, key string) string {
 		if i, ok := col[key]; ok && i < len(row) {
-			return row[i]
+			if v := row[i]; v != "null" {
+				return v
+			}
 		}
 		return ""
 	}
 
+	// This export has no dedicated "id" field (unlike the original Wiz
+	// export this importer was written for); externalId is unique across
+	// every row, so it doubles as the primary key. There's likewise no
+	// separate cloud-provider or technology-name column, so cloud_provider
+	// mirrors cloud_platform and technology_name falls back to publisher.
 	imported := 0
 	for {
 		row, err := reader.Read()
@@ -154,7 +161,7 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			return err
 		}
 
-		id := get(row, "id")
+		id := get(row, "externalId")
 		if id == "" {
 			continue
 		}
@@ -162,18 +169,18 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		riskScore := seedRiskScoreValue(rng)
 		_, err = stmt.Exec(
 			id,
-			get(row, "externalId"),
+			id,
 			get(row, "name"),
-			get(row, "type"),
+			"AI_AGENT",
 			get(row, "nativeType"),
-			get(row, "technology.name"),
+			get(row, "publisher"),
 			get(row, "cloudPlatform"),
-			get(row, "cloudAccount.cloudProvider"),
+			get(row, "cloudPlatform"),
 			get(row, "status"),
 			get(row, "region"),
-			formatProjects(get(row, "projects")),
-			get(row, "firstSeen"),
-			get(row, "createdAt"),
+			"",
+			get(row, "creationDate"),
+			get(row, "creationDate"),
 			get(row, "updatedAt"),
 			riskScore,
 		)
