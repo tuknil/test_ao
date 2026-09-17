@@ -38,6 +38,25 @@ type Agent struct {
 	Source           string `json:"source"`
 	KillSwitchAction string `json:"killSwitchAction"`
 	RiskScore        int    `json:"riskScore"`
+
+	// Security-signal fields carried through from the Wiz agent inventory
+	// export; not all exports populate all of these.
+	HasAdminPrivileges               bool   `json:"hasAdminPrivileges"`
+	HasHighPrivileges                bool   `json:"hasHighPrivileges"`
+	HasAdminSaaSPrivileges           bool   `json:"hasAdminSaaSPrivileges"`
+	HasHighSaaSPrivileges            bool   `json:"hasHighSaaSPrivileges"`
+	HasAdminKubernetesPrivileges     bool   `json:"hasAdminKubernetesPrivileges"`
+	HasHighKubernetesPrivileges      bool   `json:"hasHighKubernetesPrivileges"`
+	HasAccessToSensitiveData         bool   `json:"hasAccessToSensitiveData"`
+	IAMAccessFromOutsideOrg          string `json:"iamAccessFromOutsideOrg"`
+	OpenToAllInternet                bool   `json:"openToAllInternet"`
+	MaxExposureLevel                 string `json:"maxExposureLevel"`
+	AccessibleFromInternet           bool   `json:"accessibleFromInternet"`
+	AccessibleFromVPN                bool   `json:"accessibleFromVpn"`
+	AccessibleFromOtherSubscriptions bool   `json:"accessibleFromOtherSubscriptions"`
+	AccessibleFromOtherVnets         bool   `json:"accessibleFromOtherVnets"`
+	DetectedIacPlatform              string `json:"detectedIacPlatform"`
+	IacStatus                        string `json:"iacStatus"`
 }
 
 var validKillSwitchActions = map[string]bool{
@@ -78,6 +97,22 @@ func migrateAgents(db *sql.DB) error {
 		ALTER TABLE agents ADD COLUMN IF NOT EXISTS kill_switch_action TEXT NOT NULL DEFAULT 'not taken';
 		ALTER TABLE agents ALTER COLUMN kill_switch_action SET DEFAULT 'not taken';
 		ALTER TABLE agents ADD COLUMN IF NOT EXISTS risk_score INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_admin_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_high_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_admin_saas_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_high_saas_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_admin_kubernetes_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_high_kubernetes_privileges BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS has_access_to_sensitive_data BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS iam_access_from_outside_org TEXT NOT NULL DEFAULT '';
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS open_to_all_internet BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS max_exposure_level TEXT NOT NULL DEFAULT '';
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS accessible_from_internet BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS accessible_from_vpn BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS accessible_from_other_subscriptions BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS accessible_from_other_vnets BOOLEAN NOT NULL DEFAULT false;
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS detected_iac_platform TEXT NOT NULL DEFAULT '';
+		ALTER TABLE agents ADD COLUMN IF NOT EXISTS iac_status TEXT NOT NULL DEFAULT '';
 	`)
 	return err
 }
@@ -114,8 +149,11 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 		return err
 	}
 	stmt, err := tx.Prepare(`
-		INSERT INTO agents (id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risk_score)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO agents (
+			id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risk_score,
+			has_admin_privileges, has_high_privileges, has_admin_saas_privileges, has_high_saas_privileges, has_admin_kubernetes_privileges, has_high_kubernetes_privileges, has_access_to_sensitive_data, iam_access_from_outside_org, open_to_all_internet, max_exposure_level, accessible_from_internet, accessible_from_vpn, accessible_from_other_subscriptions, accessible_from_other_vnets, detected_iac_platform, iac_status
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31)
 	`)
 	if err != nil {
 		tx.Rollback()
@@ -140,6 +178,9 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			}
 		}
 		return ""
+	}
+	getBool := func(row []string, key string) bool {
+		return strings.EqualFold(get(row, key), "TRUE")
 	}
 
 	// This export has no dedicated "id" field (unlike the original Wiz
@@ -180,6 +221,22 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 			get(row, "creationDate"),
 			get(row, "updatedAt"),
 			riskScore,
+			getBool(row, "hasAdminPrivileges"),
+			getBool(row, "hasHighPrivileges"),
+			getBool(row, "hasAdminSaaSPrivileges"),
+			getBool(row, "hasHighSaaSPrivileges"),
+			getBool(row, "hasAdminKubernetesPrivileges"),
+			getBool(row, "hasHighKubernetesPrivileges"),
+			getBool(row, "hasAccessToSensitiveData"),
+			get(row, "hasIAMAccessFromOutsideOrganization"),
+			getBool(row, "openToAllInternet"),
+			get(row, "maxExposureLevel"),
+			getBool(row, "accessibleFrom_internet"),
+			getBool(row, "accessibleFrom_VPN"),
+			getBool(row, "accessibleFrom_otherSubscriptions"),
+			getBool(row, "accessibleFrom_otherVnets"),
+			get(row, "detectedIacPlatform"),
+			get(row, "iacStatus"),
 		)
 		if err != nil {
 			tx.Rollback()
@@ -206,7 +263,7 @@ func importAgentsFromCSV(db *sql.DB, path string) error {
 // Best-effort: Postgres remains the system of record and every API read
 // goes through it, not Redis.
 func syncAllAgentsToRedis(db *sql.DB) {
-	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score FROM agents`)
+	rows, err := db.Query(`SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score, has_admin_privileges, has_high_privileges, has_admin_saas_privileges, has_high_saas_privileges, has_admin_kubernetes_privileges, has_high_kubernetes_privileges, has_access_to_sensitive_data, iam_access_from_outside_org, open_to_all_internet, max_exposure_level, accessible_from_internet, accessible_from_vpn, accessible_from_other_subscriptions, accessible_from_other_vnets, detected_iac_platform, iac_status FROM agents`)
 	if err != nil {
 		log.Printf("redis: failed to read agents for sync: %v", err)
 		return
@@ -217,7 +274,7 @@ func syncAllAgentsToRedis(db *sql.DB) {
 	n := 0
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore, &a.HasAdminPrivileges, &a.HasHighPrivileges, &a.HasAdminSaaSPrivileges, &a.HasHighSaaSPrivileges, &a.HasAdminKubernetesPrivileges, &a.HasHighKubernetesPrivileges, &a.HasAccessToSensitiveData, &a.IAMAccessFromOutsideOrg, &a.OpenToAllInternet, &a.MaxExposureLevel, &a.AccessibleFromInternet, &a.AccessibleFromVPN, &a.AccessibleFromOtherSubscriptions, &a.AccessibleFromOtherVnets, &a.DetectedIacPlatform, &a.IacStatus); err != nil {
 			log.Printf("redis: failed to scan agent for sync: %v", err)
 			continue
 		}
@@ -367,7 +424,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score
+	query := `SELECT id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score, has_admin_privileges, has_high_privileges, has_admin_saas_privileges, has_high_saas_privileges, has_admin_kubernetes_privileges, has_high_kubernetes_privileges, has_access_to_sensitive_data, iam_access_from_outside_org, open_to_all_internet, max_exposure_level, accessible_from_internet, accessible_from_vpn, accessible_from_other_subscriptions, accessible_from_other_vnets, detected_iac_platform, iac_status
 	          FROM agents ` + whereClause + `
 	          ORDER BY name
 	          LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
@@ -383,7 +440,7 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 	items := []Agent{}
 	for rows.Next() {
 		var a Agent
-		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore); err != nil {
+		if err := rows.Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore, &a.HasAdminPrivileges, &a.HasHighPrivileges, &a.HasAdminSaaSPrivileges, &a.HasHighSaaSPrivileges, &a.HasAdminKubernetesPrivileges, &a.HasHighKubernetesPrivileges, &a.HasAccessToSensitiveData, &a.IAMAccessFromOutsideOrg, &a.OpenToAllInternet, &a.MaxExposureLevel, &a.AccessibleFromInternet, &a.AccessibleFromVPN, &a.AccessibleFromOtherSubscriptions, &a.AccessibleFromOtherVnets, &a.DetectedIacPlatform, &a.IacStatus); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -406,9 +463,9 @@ func listAgents(w http.ResponseWriter, r *http.Request) {
 func updateAgentReturning(tx *sql.Tx, query string, args ...interface{}) (Agent, error) {
 	var a Agent
 	err := tx.QueryRow(
-		query+` RETURNING id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score`,
+		query+` RETURNING id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at, risks, monitor, source, kill_switch_action, risk_score, has_admin_privileges, has_high_privileges, has_admin_saas_privileges, has_high_saas_privileges, has_admin_kubernetes_privileges, has_high_kubernetes_privileges, has_access_to_sensitive_data, iam_access_from_outside_org, open_to_all_internet, max_exposure_level, accessible_from_internet, accessible_from_vpn, accessible_from_other_subscriptions, accessible_from_other_vnets, detected_iac_platform, iac_status`,
 		args...,
-	).Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore)
+	).Scan(&a.ID, &a.ExternalID, &a.Name, &a.Type, &a.NativeType, &a.TechnologyName, &a.CloudPlatform, &a.CloudProvider, &a.Status, &a.Region, &a.Projects, &a.FirstSeen, &a.CreatedAt, &a.UpdatedAt, &a.Risks, &a.Monitor, &a.Source, &a.KillSwitchAction, &a.RiskScore, &a.HasAdminPrivileges, &a.HasHighPrivileges, &a.HasAdminSaaSPrivileges, &a.HasHighSaaSPrivileges, &a.HasAdminKubernetesPrivileges, &a.HasHighKubernetesPrivileges, &a.HasAccessToSensitiveData, &a.IAMAccessFromOutsideOrg, &a.OpenToAllInternet, &a.MaxExposureLevel, &a.AccessibleFromInternet, &a.AccessibleFromVPN, &a.AccessibleFromOtherSubscriptions, &a.AccessibleFromOtherVnets, &a.DetectedIacPlatform, &a.IacStatus)
 	if err != nil {
 		return a, err
 	}
