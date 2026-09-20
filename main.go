@@ -82,6 +82,21 @@ func main() {
 	}
 	syncAllModelsToRedis(db)
 
+	if err := migrateA365Agents(db); err != nil {
+		log.Fatalf("failed to migrate A365 agents: %v", err)
+	}
+	if err := migrateKPIs(db); err != nil {
+		log.Fatalf("failed to migrate KPIs: %v", err)
+	}
+	// Best-effort, unlike the other imports: Databricks is an external
+	// dependency with its own availability/auth failure modes, and a
+	// misconfigured or unreachable warehouse shouldn't crash-loop the
+	// whole server on every restart. A failure here just means the
+	// a365_agents table keeps whatever it had from the last successful run.
+	if err := importA365AgentsFromDatabricks(db); err != nil {
+		log.Printf("failed to import A365 agents from databricks: %v", err)
+	}
+
 	pushMappedCountsToRedis()
 
 	mux := http.NewServeMux()
@@ -101,6 +116,7 @@ func main() {
 	mux.HandleFunc("GET /api/policies", listPolicies)
 	mux.HandleFunc("PATCH /api/policies/{id}/enabled", updatePolicyEnabled)
 	mux.HandleFunc("GET /api/models", listModels)
+	mux.HandleFunc("GET /api/a365-agents", listA365Agents)
 	mux.HandleFunc("GET /api/dashboard/stats", getDashboardStats)
 	mux.HandleFunc("GET /api/dashboard/reporting", getDashboardReporting)
 	mux.Handle("/", noCacheStatic(http.FileServer(http.Dir("./web"))))
