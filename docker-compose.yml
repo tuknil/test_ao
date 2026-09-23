@@ -51,6 +51,13 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=wizworkspace
+      # Optional: set all four to enable the A365 (M365 Copilot agent
+      # inventory) import from Databricks. Left unset here — the app skips
+      # this import cleanly when any of them is missing.
+      # - DATABRICKS_DSN=token:<pat>@<workspace-host>:443/sql/1.0/warehouses/<id>
+      # - DATABRICKS_CATALOG_A365=<catalog>
+      # - DATABRICKS_SCHEMA_A365=<schema>
+      # - DATABRICKS_TABLE_A365=<table>
     expose:
       - "8138"
     ports:

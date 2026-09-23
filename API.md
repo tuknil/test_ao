@@ -314,6 +314,58 @@ curl "http://localhost:8080/api/policies?search=critical&limit=50&offset=0"
 
 ---
 
+## A365 Agents (Databricks)
+
+A separate inventory of Microsoft 365 Copilot agents, sourced from a Databricks table rather than a bundled CSV. This entire code path is optional and only runs when all four of these env vars are set:
+
+| Env var | Purpose |
+|---|---|
+| `DATABRICKS_DSN` | Full driver DSN, e.g. `token:<pat>@<workspace-host>:443/sql/1.0/warehouses/<id>` |
+| `DATABRICKS_CATALOG_A365` | Unity Catalog catalog name |
+| `DATABRICKS_SCHEMA_A365` | Schema name |
+| `DATABRICKS_TABLE_A365` | Table name |
+
+If any of the four is missing, the app skips this import entirely (not an error). If they're set but the connection or query fails, the failure is logged and the server keeps running — unlike the CSV imports, a Databricks outage doesn't crash-loop the whole app, and the `a365_agents` table simply keeps whatever it had from its last successful run.
+
+On every server start where Databricks is configured, the importer wipes and reloads the `a365_agents` Postgres table from the source table (same wipe-and-reseed behavior as the CSV-backed tables), then recomputes and persists the `a365_agents_mapped` KPI (see Redis section below). Postgres is the only thing API reads go through — Databricks itself is never queried at request time.
+
+### `GET /api/a365-agents`
+
+Same pagination/search shape as `/api/agents` and `/api/models`. `search` matches against name, status, publisher, owner, and platform.
+
+```bash
+curl "http://localhost:8080/api/a365-agents?search=copilot&limit=10"
+```
+
+**Response `200`:**
+
+```json
+{
+  "items": [
+    {
+      "titleId": "T_ddcdf2d7-4629-9e27-f5ec-114aeb8e0702",
+      "name": "ACE Field",
+      "status": "Available",
+      "publisher": "KENT, MICHAEL R (CONSTRUCTION …)",
+      "owner": "MK7692@att.com",
+      "platform": "SharePoint",
+      "hasCustomActions": true,
+      "risks": 0,
+      "activeUsers": 28,
+      "totalSessions": 63,
+      "exceptionRate": "0.00%"
+    }
+  ],
+  "total": 3000,
+  "limit": 10,
+  "offset": 0
+}
+```
+
+(Response objects carry all ~40 source columns; the example above is truncated for brevity.)
+
+---
+
 ## Dashboard
 
 ### `GET /api/dashboard/stats`
@@ -390,16 +442,28 @@ Notes:
 
 ## Redis
 
-Postgres remains the system of record for everything in this app. Redis is a supplementary cache: at startup, after all CSV imports complete, the API server computes three counts from Postgres and pushes them into Redis as plain string values (no TTL).
+Postgres remains the system of record for everything in this app. Redis is a supplementary mirror — API reads never go through it.
 
 | Key | Value |
 |---|---|
 | `agentic_overlay:agents_mapped` | `count(*) FROM agents` |
 | `agentic_overlay:models_mapped` | `count(*) FROM models` |
 | `agentic_overlay:policies_mapped` | `count(*) FROM policies` |
+| `agentic_overlay:wiz_integrations_mapped` | `count(*) FROM wiz_integrations` |
+| `agentic_overlay:a365_agents_mapped` | `count(*) FROM a365_agents` — only set when Databricks is configured (see A365 Agents section above) |
 
 ```bash
 docker exec redis redis-cli GET agentic_overlay:agents_mapped
 ```
 
-Connection is configured via `REDIS_ADDR` (docker-compose sets this to `redis:6379`; defaults to `localhost:6379` otherwise). The push is best-effort — if Redis is unreachable at startup, the server logs the failure and continues serving normally; it does not fail startup or affect any HTTP endpoint.
+Connection is configured via `REDIS_ADDR` (docker-compose sets this to `redis:6379`; defaults to `localhost:6379` otherwise). Every write here is best-effort — if Redis is unreachable, the server logs the failure and continues serving normally; it does not fail startup or affect any HTTP endpoint.
+
+The `a365_agents_mapped` KPI is unique in also being persisted in Postgres, in a plain key/value table:
+
+```sql
+CREATE TABLE kpis (key TEXT PRIMARY KEY, value INTEGER NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+```
+
+```bash
+docker exec postgres psql -U postgres -p 5433 -d wizworkspace -c "SELECT * FROM kpis;"
+```
