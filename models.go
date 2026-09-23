@@ -53,18 +53,10 @@ func migrateModels(db *sql.DB) error {
 	return err
 }
 
-// importModelsFromCSV loads the bundled models CSV export into the models
-// table the first time the app runs (the table is left untouched on
-// subsequent restarts so manual edits, if any, are preserved).
+// importModelsFromCSV wipes the models table and reloads it from the
+// bundled CSV export every time the server starts, so a fresh CSV always
+// wins over whatever was there before.
 func importModelsFromCSV(db *sql.DB, path string) error {
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM models`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-
 	f, err := os.Open(path)
 	if err != nil {
 		log.Printf("models CSV not found at %s, skipping import: %v", path, err)
@@ -86,10 +78,13 @@ func importModelsFromCSV(db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`TRUNCATE models`); err != nil {
+		tx.Rollback()
+		return err
+	}
 	stmt, err := tx.Prepare(`
 		INSERT INTO models (id, external_id, name, type, native_type, technology_name, cloud_platform, cloud_provider, status, region, projects, first_seen, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		ON CONFLICT (id) DO NOTHING
 	`)
 	if err != nil {
 		tx.Rollback()

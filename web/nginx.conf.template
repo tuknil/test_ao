@@ -4,6 +4,21 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # The HTML shell has no cache-busting query string (unlike script.js's
+    # ?v=N), so without this nginx's default Last-Modified/ETag headers let
+    # browsers cache it heuristically — a stale tab can keep serving an old
+    # page (and therefore an old script.js version) indefinitely. Forcing
+    # revalidation here is cheap (still a 304 on an unchanged file) and
+    # guarantees a reload always sees the current version.
+    location = / {
+        add_header Cache-Control "no-cache";
+        try_files /index.html =404;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
     location /api/ {
         # API_ENDPOINT is a full base URL (scheme://host[:port], no trailing
         # path) so it can point at a plain host:port for docker-compose or an

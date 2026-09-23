@@ -50,17 +50,11 @@ func migratePolicies(db *sql.DB) error {
 	return err
 }
 
-// importPoliciesFromCSV loads the bundled policy updates CSV export into the
-// policies table the first time the app runs.
+// importPoliciesFromCSV wipes the policies table and reloads it from the
+// bundled CSV export every time the server starts, so a fresh CSV always
+// wins over whatever was there before (including any "enabled" toggles set
+// through the API).
 func importPoliciesFromCSV(db *sql.DB, path string) error {
-	var count int
-	if err := db.QueryRow(`SELECT count(*) FROM policies`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-
 	f, err := os.Open(path)
 	if err != nil {
 		log.Printf("policies CSV not found at %s, skipping import: %v", path, err)
@@ -82,10 +76,13 @@ func importPoliciesFromCSV(db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`TRUNCATE policies`); err != nil {
+		tx.Rollback()
+		return err
+	}
 	stmt, err := tx.Prepare(`
 		INSERT INTO policies (id, policy_id, name, policy_type, update_type, severity, cloud_platform, released_at, apply_date)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO NOTHING
 	`)
 	if err != nil {
 		tx.Rollback()
